@@ -299,6 +299,7 @@ table.rec th{background:#EEE}
     <label style="font-weight:bold">摘要（可語音輸入）</label>
     <button class="micBtn" id="micBtn" onclick="toggleMic()">🎤 開始語音</button>
     <button class="micBtn" id="micBtnC" style="background:#1A73E8;border-color:#0B4DA0" onclick="toggleCloudMic('triage','micBtnC','micStatus')">☁️ 精準語音</button>
+    <button class="ghost" style="border-color:#7B1FA2;color:#7B1FA2" onclick="polishSummary()">✨ 整理摘要</button>
     <button class="ghost" onclick="analyzeSummary()">分析並建議分類</button>
     <span id="micStatus" style="font-size:12px;color:#666"></span>
   </div>
@@ -842,8 +843,9 @@ async function toggleCloudMic(ctx,btnId,stId){
         if(f.cArr)$("rCArr").checked=true;
         st.textContent="✓ 雲端辨識完成（Gemini），綠底為自動填入，請逐欄核對。";
       }else{
-        if(out.transcript)$("sumText").value=($("sumText").value?$("sumText").value+" ":"")+out.transcript;
-        st.textContent="✓ 雲端辨識完成（Gemini）。";
+        const noteTxt=out.note||out.transcript||"";
+        if(noteTxt)$("sumText").value=($("sumText").value?$("sumText").value+"\n":"")+noteTxt;
+        st.textContent=out.note?"✓ 已辨識並整理為醫學摘要（原逐字稿未顯示，僅供整理）。":"✓ 雲端辨識完成。";
         analyzeSummary();
       }
     }catch(e){st.textContent="連線失敗";alert("☁️ 連線失敗："+e.message+"\n請檢查網路與 API 端點設定。可先改用 🎤 內建語音。");}
@@ -851,6 +853,26 @@ async function toggleCloudMic(ctx,btnId,stId){
   recCloud.start();
   btn.textContent="⏹ 停止錄音";btn.classList.add("rec");
   st.textContent="☁ 錄音中…說完按停止即上傳辨識。";
+}
+
+/* ---------- 摘要整理（文字 → 醫學摘要） ---------- */
+async function polishSummary(){
+  const txt=$("sumText").value.trim();
+  if(!txt){$("micStatus").textContent="請先輸入或語音錄入內容再整理。";return;}
+  const url=$("apiUrl").value.trim();
+  if(!url){$("micStatus").textContent="整理摘要需設定 API 端點。";return;}
+  $("micStatus").textContent="✨ 整理中…";
+  try{
+    const res=await fetch(url,{method:"POST",body:JSON.stringify({mode:"polish",text:txt,apiKey:$("apiKey").value||undefined})});
+    const j=await res.json();
+    if(!j.ok){$("micStatus").textContent="整理失敗";alert("✨ 整理摘要失敗："+(j.error||""));return;}
+    const note=(j.result||{}).note;
+    if(!note){$("micStatus").textContent="整理失敗：無回傳內容";return;}
+    $("sumText").value=note;
+    $("micStatus").textContent="✓ 已整理為醫學摘要，請核對內容是否與口述一致。";
+    showToast("✨ 摘要已整理，請核對");
+    analyzeSummary();
+  }catch(e){$("micStatus").textContent="連線失敗："+e.message;}
 }
 
 /* ---------- 文字分析 → 建議分類 ---------- */
