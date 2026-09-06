@@ -475,6 +475,7 @@ table.rec th{background:#EEE}
     </div>
     <div class="row"><label>事件代號</label>
       <input type="text" id="evCode" class="w9" list="evList" placeholder="例：0904A（空白＝自動）">
+      <button class="ghost" style="padding:3px 10px" onclick="openEventPicker('login')">📂 選擇事件</button>
       <datalist id="evList"></datalist>
       <span style="font-size:12px;color:#666">同一事件＝同一資料夾；當日第二事件請用不同代號</span>
     </div>
@@ -553,6 +554,25 @@ table.rec th{background:#EEE}
   </div>
 </dialog>
 
+<!-- ============ 事件選擇 ============ -->
+<dialog id="evDlg">
+  <div class="dhead"><span>選擇事件</span><button class="ghost" style="padding:2px 10px" onclick="document.getElementById('evDlg').close()">✕</button></div>
+  <div class="dbody">
+    <div class="row" id="evAdminQuery" style="display:none">
+      <label>時間查詢</label>
+      <input type="date" id="evFrom"><span>～</span><input type="date" id="evTo">
+      <button class="ghost" style="padding:3px 12px" onclick="loadEvents()">查詢</button>
+    </div>
+    <div id="evListBox" style="max-height:50vh;overflow:auto;margin-top:6px"></div>
+    <div class="row" style="margin-top:8px;border-top:1px solid #DDD;padding-top:8px">
+      <input type="text" id="evManual" class="w9" placeholder="手動輸入/新事件代號">
+      <button onclick="pickEvent($('evManual').value.trim())">使用此事件</button>
+      <button class="ghost" id="evAllBtn" style="display:none" onclick="pickEvent('')">檢視全部事件（管理）</button>
+    </div>
+    <div id="evMsg" style="font-size:13px;color:#666;margin-top:6px"></div>
+  </div>
+</dialog>
+
 <!-- ============ 儲存結果 ============ -->
 <div id="toast"></div>
 <dialog id="saveDlg">
@@ -575,6 +595,8 @@ table.rec th{background:#EEE}
     <input type="text" id="apiUrl" style="width:100%" placeholder="https://his.hospital.tw/api/triage（留空＝僅本機保存）">
     <div class="row" style="margin-top:6px"><label>API 金鑰（選填，帶入 Authorization: Bearer）</label></div>
     <input type="text" id="apiKey" style="width:100%">
+    <div class="row" style="margin-top:6px"><label>管理金鑰（限各科管理權限者，可瀏覽一年內事件）</label></div>
+    <input type="text" id="adminKey" style="width:100%">
     <div class="row" style="margin-top:8px"><button class="ghost" onclick="testEndpoint(this)">🔎 測試端點連線</button>
       <span id="pingResult" style="font-size:13px"></span></div>
     <p style="font-size:13px;color:#555;margin-top:10px;line-height:1.7">
@@ -1115,12 +1137,45 @@ function doLogin(){
   refreshList();
 }
 function updateEvChip(){$("evChip").textContent="📁 "+(curEvent||"全部事件");}
-function changeEvent(){
-  const evs=(listCache.events||[]).join("、");
-  const v=prompt("切換/建立事件代號（空白＝檢視全部事件）"+(evs?"\n既有事件："+evs:""),curEvent);
-  if(v===null)return;
-  curEvent=v.trim();updateEvChip();refreshList();
-  showToast("已切換至："+(curEvent||"全部事件"));
+function changeEvent(){ openEventPicker("app"); }
+let evPickMode="app";
+function openEventPicker(mode){
+  evPickMode=mode;
+  $("evDlg").showModal();
+  loadEvents();
+}
+async function loadEvents(){
+  const url=$("apiUrl").value.trim()||$("loginUrl").value.trim();
+  const box=$("evListBox"), msg=$("evMsg");
+  if(!url){box.innerHTML="";msg.textContent="需先設定 API 端點。可於下方手動輸入事件代號。";return;}
+  box.innerHTML='<div style="color:#777;padding:8px">載入中…</div>';
+  try{
+    let q=url+(url.includes("?")?"&":"?")+"action=events&key="+encodeURIComponent($("apiKey").value||"")+
+      "&adminkey="+encodeURIComponent($("adminKey").value||"");
+    if($("evFrom").value)q+="&from="+$("evFrom").value;
+    if($("evTo").value)q+="&to="+$("evTo").value;
+    const res=await fetch(q);
+    const j=await res.json();
+    if(!j.ok)throw new Error(j.error||"");
+    $("evAdminQuery").style.display=j.admin?"flex":"none";
+    $("evAllBtn").style.display=j.admin?"inline-block":"none";
+    msg.textContent=j.admin
+      ? "管理權限：顯示一年內事件，可用時間區間查詢。"
+      : `一般權限：僅顯示進行中事件（近 ${j.activeDays} 天內有活動）。過去事件需管理金鑰（⚙ 設定）。`;
+    if(!j.events.length){box.innerHTML='<div style="color:#777;padding:8px">目前沒有可顯示的事件，可於下方輸入新代號建立。</div>';return;}
+    box.innerHTML=j.events.map(e=>
+      `<div class="item" style="display:flex;justify-content:space-between;gap:8px" onclick="pickEvent('${e.name.replace(/'/g,"")}')">
+        <b>📁 ${e.name}</b><span style="color:#666">${e.start===e.end?e.start:e.start+"～"+e.end}｜${e.count} 筆</span></div>`).join("");
+  }catch(e){box.innerHTML="";msg.textContent="事件清單載入失敗："+e.message+"（可手動輸入代號）";}
+}
+function pickEvent(name){
+  $("evDlg").close();
+  if(evPickMode==="login"){
+    $("evCode").value=name;
+  }else{
+    curEvent=name;updateEvChip();refreshList();
+    showToast("已切換至："+(name||"全部事件"));
+  }
 }
 function switchEvent(v){curEvent=v;updateEvChip();refreshList();}
 function applyRole(){
@@ -1262,7 +1317,7 @@ async function refreshList(){
   if(!url){$("homeStats").textContent="（未設定端點：僅顯示本機資料）";renderHome();return;}
   $("homeStats").textContent="載入中…";
   try{
-    const res=await fetch(url+(url.includes("?")?"&":"?")+"action=list&key="+encodeURIComponent($("apiKey").value||"")+"&event="+encodeURIComponent(curEvent));
+    const res=await fetch(url+(url.includes("?")?"&":"?")+"action=list&key="+encodeURIComponent($("apiKey").value||"")+"&event="+encodeURIComponent(curEvent)+"&adminkey="+encodeURIComponent($("adminKey").value||""));
     const j=await res.json();
     if(!j.ok)throw new Error(j.error||"");
     listCache=j;
@@ -1552,7 +1607,8 @@ async function postDispo(sheet,row,sel){
 }
 function openAdminPanel(){
   const u=$("apiUrl").value.trim();
-  if(u)window.open(u+(u.includes("?")?"&":"?")+"view=admin"+(curEvent?"&event="+encodeURIComponent(curEvent):""),"_blank");
+  if(u)window.open(u+(u.includes("?")?"&":"?")+"view=admin"+(curEvent?"&event="+encodeURIComponent(curEvent):"")+
+    ($("adminKey").value?"&adminkey="+encodeURIComponent($("adminKey").value):""),"_blank");
 }
 function opsAnalysis(){
   const t=listCache.triage;
@@ -1591,6 +1647,7 @@ async function lookupPatient(serial, side, chartNo){
     const q=url+(url.includes("?")?"&":"?")+"action=lookup&serial="+encodeURIComponent(serial)+
       "&chartNo="+encodeURIComponent(chartNo)+
       "&event="+encodeURIComponent(curEvent)+
+      "&adminkey="+encodeURIComponent($("adminKey").value||"")+
       "&key="+encodeURIComponent($("apiKey").value||"");
     const res=await fetch(q);
     const j=await res.json();
@@ -1904,7 +1961,8 @@ function resetForm(){
 (function(){
   try{
     const h=new URLSearchParams(location.hash.replace(/^#/,""));
-    const api=h.get("api")||PRESET.api, key=h.get("key")||PRESET.key;
+    const api=h.get("api")||PRESET.api, key=h.get("key")||PRESET.key, ak=h.get("adminkey")||"";
+    if(ak)$("adminKey").value=ak;
     if(api){$("loginUrl").value=api;$("apiUrl").value=api;}
     if(key)$("apiKey").value=key;
     if(h.get("api"))history.replaceState(null,"",location.pathname); // 不留在網址列
