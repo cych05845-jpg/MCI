@@ -197,6 +197,7 @@ table.rec th{background:#EEE}
   <div class="tab" id="tabReg" onclick="setMode('reg')">傷患登錄</div>
   <span id="whoami" style="font-size:12px;color:#444;padding-bottom:6px;margin-left:6px"></span>
   <span id="lastSaved" style="font-size:12px;color:#1B7A2E;font-weight:bold;padding-bottom:6px;margin-left:6px"></span>
+  <span id="evChip" onclick="changeEvent()" title="點擊切換事件" style="cursor:pointer;font-size:12px;color:#B0512B;font-weight:bold;padding-bottom:6px;margin-left:6px"></span>
   <div class="hint">資料來源：衛福部急診五級檢傷分類基準修正版（105年）</div>
   <button class="ghost gear" style="padding:3px 10px" onclick="logout()">登出</button>
   <button class="ghost gear" style="padding:3px 10px" onclick="openRecords()">紀錄/統計</button>
@@ -347,7 +348,7 @@ table.rec th{background:#EEE}
     <button class="ghost" style="padding:2px 8px;font-size:12px;border-color:#B0512B;color:#B0512B" onclick="lookupPatient($('rSerial').value,'reg')">查詢帶入檢傷摘要</button>
     <label>姓名</label><input type="text" id="rName" class="w6" placeholder="不詳可留空">
     <label>性別</label><select id="rSex"><option value="">-</option><option>男</option><option>女</option></select>
-    <label>生日</label><input type="text" id="rBirth" class="w6" placeholder="民65/03/02">
+    <label>生日</label><input type="text" id="rBirth" class="w6" placeholder="1976/03/02 或 民65/03/02">
   </div>
   <div class="row">
     <label>病歷號</label><input type="text" id="rChart" class="w6" placeholder="掛號建檔後填入">
@@ -471,6 +472,11 @@ table.rec th{background:#EEE}
       </select>
       <label>員編</label><input type="text" id="empId" class="w6" style="font-size:16px;padding:6px" placeholder="員工編號">
       <input type="text" id="staffManual" class="w6" placeholder="姓名（選填）">
+    </div>
+    <div class="row"><label>事件代號</label>
+      <input type="text" id="evCode" class="w9" list="evList" placeholder="例：0904A（空白＝自動）">
+      <datalist id="evList"></datalist>
+      <span style="font-size:12px;color:#666">同一事件＝同一資料夾；當日第二事件請用不同代號</span>
     </div>
     <details style="margin-top:8px">
       <summary style="cursor:pointer;font-size:13px;color:#555">進階設定（單位統一號／端點／人員名單，之後匯入人資系統）</summary>
@@ -635,6 +641,7 @@ function showToast(msg,warn){
 let mode = "quick";
 let userRole = "檢傷", unitPrefix = "", serialCounter = 0;
 let prevTriage = null; // 前次檢傷參考（僅顯示，不代入本次分級）
+let curEvent = "";
 let regQueue = [];
 let curCat=null, curCpl=null;
 let selected = new Map();   // code -> {t,l,s,c,cpl}
@@ -1082,6 +1089,11 @@ async function loadStaff(){
       sel.appendChild(o);
     });
     sel.onchange=()=>{const r=sel.selectedOptions[0].dataset.role;if(r)$("roleSel").value=r;};
+    try{
+      const lr=await fetch(url+(url.includes("?")?"&":"?")+"action=list&key="+encodeURIComponent($("apiKey").value||""));
+      const lj=await lr.json();
+      if(lj.ok&&lj.events)$("evList").innerHTML=lj.events.map(e=>`<option value="${e}">`).join("");
+    }catch(_){}
     $("loginMsg").textContent="";
   }catch(e){$("loginMsg").textContent="名單載入失敗："+e.message+"（可先手動輸入姓名）";}
 }
@@ -1090,6 +1102,9 @@ function doLogin(){
   if(!emp){$("loginMsg").textContent="請輸入員編。";return;}
   const name=$("staffSel").value||$("staffManual").value.trim();
   unitPrefix=$("unitCode").value.trim();
+  const d=new Date(),p2=n=>String(n).padStart(2,"0");
+  curEvent=$("evCode").value.trim()||`${p2(d.getMonth()+1)}${p2(d.getDate())}A`;
+  updateEvChip();
   userRole=$("roleSel").value;
   $("staff").value=emp+(name?"-"+name:"");
   if($("loginUrl").value.trim()) $("apiUrl").value=$("loginUrl").value.trim();
@@ -1099,6 +1114,15 @@ function doLogin(){
   setMode("home");
   refreshList();
 }
+function updateEvChip(){$("evChip").textContent="📁 "+(curEvent||"全部事件");}
+function changeEvent(){
+  const evs=(listCache.events||[]).join("、");
+  const v=prompt("切換/建立事件代號（空白＝檢視全部事件）"+(evs?"\n既有事件："+evs:""),curEvent);
+  if(v===null)return;
+  curEvent=v.trim();updateEvChip();refreshList();
+  showToast("已切換至："+(curEvent||"全部事件"));
+}
+function switchEvent(v){curEvent=v;updateEvChip();refreshList();}
 function applyRole(){
   const regOnly=(userRole==="社工"||userRole==="掛號");
   $("tabGeneral").classList.toggle("hidden",regOnly);
@@ -1238,7 +1262,7 @@ async function refreshList(){
   if(!url){$("homeStats").textContent="（未設定端點：僅顯示本機資料）";renderHome();return;}
   $("homeStats").textContent="載入中…";
   try{
-    const res=await fetch(url+(url.includes("?")?"&":"?")+"action=list&key="+encodeURIComponent($("apiKey").value||""));
+    const res=await fetch(url+(url.includes("?")?"&":"?")+"action=list&key="+encodeURIComponent($("apiKey").value||"")+"&event="+encodeURIComponent(curEvent));
     const j=await res.json();
     if(!j.ok)throw new Error(j.error||"");
     listCache=j;
@@ -1285,11 +1309,15 @@ function renderHome(){
     const dispoOpts=(listCache.dispositions&&listCache.dispositions.length?listCache.dispositions:["","檢傷區","急救區","治療區","觀察區","送檢(檢查)","送OR(手術)","送病房(住院)","留觀","出院","轉院","死亡","其他"]);
     const sel=(cur,sheet,row)=>`<select onchange="postDispo('${sheet}',${row},this)">`+dispoOpts.map(o=>`<option${o===cur?" selected":""}>${o}</option>`).join("")+`</select>`;
     const dc={};listCache.triage.forEach(r=>{const d=r.dispo||"未定";dc[d]=(dc[d]||0)+1;});
+    const evs=listCache.events||[];
+    const evSel=`<select onchange="switchEvent(this.value)" style="font-size:15px;font-weight:bold"><option value=""${curEvent===""?" selected":""}>全部事件</option>`+
+      evs.map(e=>`<option${e===curEvent?" selected":""}>${e}</option>`).join("")+`</select>`;
     body.innerHTML=`
+      <div style="margin-bottom:6px"><b>📁 事件：</b>${evSel}</div>
       <div style="margin-bottom:8px"><b>去向統計：</b>${Object.keys(dc).map(k=>k+" "+dc[k]).join("｜")||"—"}
         <button class="ghost" style="padding:2px 10px;margin-left:10px" onclick="opsAnalysis()">📊 營運分析</button>
         <button class="ghost" style="padding:2px 10px" onclick="sitrep()">📄 匯出摘要報告</button>
-        <button class="ghost" style="padding:2px 10px" onclick="const u=$('apiUrl').value.trim();if(u)window.open(u+(u.includes('?')?'&':'?')+'view=admin','_blank')">開啟完整面板</button></div>
+        <button class="ghost" style="padding:2px 10px" onclick="openAdminPanel()">開啟完整面板</button></div>
       <b>快速檢傷列表（去向可直接登錄）</b>
       <div style="overflow:auto"><table class="rec">
       <tr><th>級</th><th>編號</th><th>時間</th><th>患者</th><th>判斷依據</th><th>去向</th></tr>`+
@@ -1487,8 +1515,9 @@ function sitrep(){
   const now=new Date();
   const txt=[
     "【大量傷患事件 狀況摘要報告】",
-    `報告時間：${now.getFullYear()-1911}/${String(now.getMonth()+1).padStart(2,"0")}/${String(now.getDate()).padStart(2,"0")} ${now.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"})}`,
+    `報告時間：${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,"0")}/${String(now.getDate()).padStart(2,"0")} ${now.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"})}`,
     `報告人員：${$("staff").value||"—"}`,
+    `事件：${curEvent||"全部事件"}`,
     "",
     `一、傷患總數：檢傷完成 ${t.length} 人；基本資料登錄 ${g.length} 人`,
     `二、檢傷分級：一級(紅) ${c[1]} 人、二級(黃) ${c[2]} 人、三級(綠) ${c[3]} 人、四級(綠) ${c[4]} 人、五級(綠) ${c[5]} 人`,
@@ -1520,6 +1549,10 @@ async function postDispo(sheet,row,sel){
     sel.style.background=(j.ok!==false&&res.ok)?"#C8E6C9":"#FFCDD2";
   }catch(e){sel.style.background="#FFCDD2";}
   sel.disabled=false;
+}
+function openAdminPanel(){
+  const u=$("apiUrl").value.trim();
+  if(u)window.open(u+(u.includes("?")?"&":"?")+"view=admin"+(curEvent?"&event="+encodeURIComponent(curEvent):""),"_blank");
 }
 function opsAnalysis(){
   const t=listCache.triage;
@@ -1557,6 +1590,7 @@ async function lookupPatient(serial, side, chartNo){
   try{
     const q=url+(url.includes("?")?"&":"?")+"action=lookup&serial="+encodeURIComponent(serial)+
       "&chartNo="+encodeURIComponent(chartNo)+
+      "&event="+encodeURIComponent(curEvent)+
       "&key="+encodeURIComponent($("apiKey").value||"");
     const res=await fetch(q);
     const j=await res.json();
@@ -1608,7 +1642,7 @@ function addReg(){
     cName:$("rCName").value,cRel:$("rCRel").value,cTel:$("rCTel").value,
     cDone:$("rCDone").checked,cArr:$("rCArr").checked,
     triage:$("rTri").value,injury:$("rInjury").value,memo:$("rMemo").value,summary:$("rSum").value,
-    staff:$("staff").value,time:new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"}),sent:false};
+    event:curEvent,staff:$("staff").value,time:new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"}),sent:false};
   regQueue.push(rec);
   ["rSerial","rChart","rName","rBirth","rNatId","rAddr","rTelH","rTelM","rCName","rCRel","rCTel","rTri","rInjury","rMemo","rSum"].forEach(id=>$(id).value="");
   $("rTri").style.background="#EAEAE2";$("rTri").style.color="";
@@ -1725,7 +1759,7 @@ function buildRecord(){
     vitalFindings:vf.map(x=>({text:x.txt,level:x.l})),
     autoLevel:auto, finalLevel:fin||null,
     override:$("overrideSel").value?+$("overrideSel").value:null,
-    staff:$("staff").value, mode, basis:$("basisBox").textContent,
+    staff:$("staff").value, mode, basis:$("basisBox").textContent, event:curEvent,
     savedAt:new Date().toISOString()
   };
 }
@@ -1843,7 +1877,7 @@ function exportCSV(){
 function onAttrChange(){ curCat=null;curCpl=null;cplFilter=null;clearRegionHi();updateContentPane();renderCats();renderCpls();renderCris();$("sugList").innerHTML="";compute(); }
 function setNow(){
   const d=new Date(); const p=n=>String(n).padStart(2,"0");
-  $("arrTime").value=`${d.getFullYear()-1911}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  $("arrTime").value=`${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 function nextPatient(){
   $("saveDlg").close();
