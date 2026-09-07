@@ -645,7 +645,7 @@ table.rec th{background:#EEE}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.07-1";
+const APP_VERSION = "v2026.09.07-2";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1346,9 +1346,11 @@ async function refreshList(){
 }
 function lvBadge(l){return l?`<span style="display:inline-block;min-width:1.6em;text-align:center;font-weight:bold;background:var(--l${l});color:${l==3?'#000':(l==2?'#7A0000':'#fff')}">${l}</span>`:"—";}
 function statsLine(){
+  const t=listCache.triage.filter(r=>r.dispo!=="作廢");
+  const g=listCache.register.filter(r=>r.dispo!=="作廢");
   const c={1:0,2:0,3:0,4:0,5:0};
-  listCache.triage.forEach(r=>{if(c[r.level]!==undefined)c[r.level]++;});
-  return `已檢傷 ${listCache.triage.length} 人（1級${c[1]}｜2級${c[2]}｜3級${c[3]}｜4級${c[4]}｜5級${c[5]}）｜已登錄 ${listCache.register.length} 人`;
+  t.forEach(r=>{if(c[r.level]!==undefined)c[r.level]++;});
+  return `已檢傷 ${t.length} 人（1級${c[1]}｜2級${c[2]}｜3級${c[3]}｜4級${c[4]}｜5級${c[5]}）｜已登錄 ${g.length} 人`;
 }
 function renderHome(){
   const body=$("homeBody");
@@ -1375,7 +1377,7 @@ function renderHome(){
       <b>已檢傷病人列表（點列開始登打、完善資訊）</b>
       <div style="overflow:auto"><table class="rec">
       <tr><th>級</th><th>編號</th><th>時間</th><th>患者</th><th>判斷依據</th><th>登錄</th></tr>`+
-      listCache.triage.slice().reverse().map(r=>`<tr style="cursor:pointer" onclick="startRegFor('${String(r.mciNo||"").replace(/'/g,"")}')">
+      listCache.triage.filter(r=>r.dispo!=="作廢").slice().reverse().map(r=>`<tr style="cursor:pointer" onclick="startRegFor('${String(r.mciNo||"").replace(/'/g,"")}')">
         <td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.time}</td><td>${r.name||"未知"}</td>
         <td>${String(r.criteria||"").substring(0,28)}</td><td>${r.registered?"✅":"<span style=color:#A33>未登錄</span>"}</td></tr>`).join("")+
       `</table></div>`;
@@ -1398,7 +1400,7 @@ function renderHome(){
       <b>快速檢傷列表（去向可直接登錄）</b>
       <div style="overflow:auto"><table class="rec">
       <tr><th>級</th><th>編號</th><th>時間</th><th>患者</th><th>判斷依據</th><th>去向</th></tr>`+
-      listCache.triage.slice().reverse().map(r=>`<tr><td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td>
+      listCache.triage.slice().reverse().map(r=>`<tr${r.dispo==="作廢"?' style="opacity:.45;text-decoration:line-through"':''}><td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td>
         <td>${r.time}</td><td>${r.name||"未知"}</td><td>${String(r.criteria||"").substring(0,30)}</td>
         <td>${sel(r.dispo||"","T",r.row)}</td></tr>`).join("")+
       `</table></div>
@@ -1436,13 +1438,11 @@ function showText(title,content){
 function triTable(clickable){
   return `<div style="overflow:auto"><table class="rec">
     <tr><th>級</th><th>編號</th><th>病歷號</th><th>時間</th><th>患者</th><th>判斷依據</th><th>轉錄</th></tr>`+
-    listCache.triage.slice().reverse().map((r,i)=>{
-      const idx=listCache.triage.length-1-i;
-      return `<tr ${clickable?`style="cursor:pointer" onclick="openTransfer(${idx})"`:""}>
+    listCache.triage.map((r,idx)=>({r,idx})).filter(o=>o.r.dispo!=="作廢").reverse().map(({r,idx})=>
+      `<tr ${clickable?`style="cursor:pointer" onclick="openTransfer(${idx})"`:""}>
         <td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.chartNo||"—"}</td>
         <td>${r.time}</td><td>${r.name||"未知"}</td><td>${String(r.criteria||"").substring(0,30)}</td>
-        <td>${r.done?"✅":'<span style="color:#A33">—</span>'}</td></tr>`;
-    }).join("")+`</table></div>`;
+        <td>${r.done?"✅":'<span style="color:#A33">—</span>'}</td></tr>`).join("")+`</table></div>`;
 }
 async function postVoid(sheet,row){
   const url=$("apiUrl").value.trim();
@@ -1531,7 +1531,7 @@ async function voidCurrentTriage(){
   const r=listCache.triage[tfIdx];
   if(!r)return;
   if(!confirm(`確定作廢這筆？\n編號 ${r.mciNo||"—"}｜${r.name||"未知"}｜第 ${r.level||"?"} 級\n（作廢＝標記不採計，不會真的刪除，可於試算表稽核）`))return;
-  if(await postVoid("T",r.row)){r.dispo="作廢";r.done=true;renderTransfer();renderHome();}
+  if(await postVoid("T",r.row)){r.dispo="作廢";r.done=true;$("transferDlg").close();renderHome();showToast("🗑 已作廢並自清單移除");}
 }
 function stepTransfer(d){
   const n=listCache.triage.length;
