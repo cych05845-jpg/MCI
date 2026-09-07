@@ -542,6 +542,30 @@ table.rec th{background:#EEE}
   </div>
 </dialog>
 
+<!-- ============ 掛號建檔帶入卡 ============ -->
+<dialog id="regCard">
+  <div class="dhead"><span>掛號建檔帶入　<span id="rcStatus" style="font-weight:normal;font-size:13px"></span></span>
+    <button class="ghost" style="padding:2px 10px" onclick="document.getElementById('regCard').close()">✕</button></div>
+  <div class="dbody">
+    <div class="row" style="margin-bottom:6px"><span id="rcWho" style="font-weight:bold;font-size:15px"></span></div>
+    <div class="row"><label style="min-width:5.5em">姓名</label><input id="rcName" readonly style="flex:1;font-size:16px;font-weight:bold"><button class="ghost" onclick="copyVal('rcName',this)">複製</button></div>
+    <div class="row"><label style="min-width:5.5em">身分證/護照</label><input id="rcNatId" readonly style="flex:1;font-size:16px;font-weight:bold"><button class="ghost" onclick="copyVal('rcNatId',this)">複製</button></div>
+    <div class="row"><label style="min-width:5.5em">生日</label><input id="rcBirth" readonly class="w9"><button class="ghost" onclick="copyVal('rcBirth',this)">複製</button>
+      <label>性別</label><input id="rcSex" readonly class="w4"></div>
+    <div class="row"><label style="min-width:5.5em">手機</label><input id="rcTel" readonly class="w9"><button class="ghost" onclick="copyVal('rcTel',this)">複製</button></div>
+    <div class="row" style="border-top:1px solid #DDD;padding-top:8px;margin-top:4px">
+      <label style="min-width:5.5em;color:#B0512B">病歷號回填</label>
+      <input id="rcChart" class="w9" placeholder="HIS建檔後貼回">
+      <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="startScan('rcChart')">📷</button>
+      <button class="ghost" onclick="saveRegChart(this)">存回</button>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-top:8px">
+      <span style="font-size:12px;color:#666">於院內掛號系統逐欄貼上建檔 → 病歷號回填 → 按完成熄燈</span>
+      <button id="rcDoneBtn" style="background:#1B7A2E;border-color:#145C22;font-size:15px" onclick="confirmRegDone(this)">✓ 已建檔完成</button>
+    </div>
+  </div>
+</dialog>
+
 <!-- ============ 通用文字輸出 ============ -->
 <dialog id="textDlg">
   <div class="dhead"><span id="textDlgTitle">輸出</span><button class="ghost" style="padding:2px 10px" onclick="document.getElementById('textDlg').close()">✕</button></div>
@@ -645,7 +669,7 @@ table.rec th{background:#EEE}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.07-2";
+const APP_VERSION = "v2026.09.07-4";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1368,12 +1392,27 @@ function renderHome(){
       </div>
       <b>最近檢傷（點列可開啟單筆轉錄卡）</b>`+triTable(true);
   }else if(userRole==="社工"||userRole==="掛號"){
-    $("homeTitle").textContent="傷患登錄主畫面";
-    body.innerHTML=`
+    const isReg=(userRole==="掛號");
+    $("homeTitle").textContent=isReg?"掛號建檔主畫面":"傷患登錄主畫面";
+    const btnsHtml=`
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <button style="font-size:17px;padding:12px 22px" onclick="startRegFor('')">＋ 新增登錄（檢傷未完成也可先作業）</button>
         <button class="ghost" style="font-size:15px" onclick="startScan('__homeScan')">📷 掃編號/病歷號開始</button>
-      </div>
+      </div>`;
+    const queueHtml=`
+      <b>${isReg?"掛號建檔佇列（您的主要工作區）":"登錄狀態總覽"}</b>
+      <span style="font-size:12px;color:#666">　<span style="background:#FFF3B0;padding:0 6px">黃＝待掛號建檔</span>
+      <span style="background:#FFD6D6;padding:0 6px">紅＝無名氏/身分不全${isReg?"":"（請優先查明身分）"}</span>　✅＝已建檔</span>
+      <div style="overflow:auto;margin-bottom:12px"><table class="rec">
+      <tr><th>編號</th><th>姓名</th><th>身分證</th><th>級</th><th>病歷號</th><th>狀態</th></tr>`+
+      listCache.register.map((g,gi)=>({g,gi})).filter(o=>o.g.dispo!=="作廢").reverse().map(({g,gi})=>{
+        const anon=!String(g.name||"").trim()||!g.hasId;
+        const bg=g.regDone?"":(anon?' style="background:#FFD6D6;cursor:pointer"':' style="background:#FFF3B0;cursor:pointer"');
+        const stTxt=g.regDone?"✅已建檔":(anon?'<b style="color:#B00">⚠ 無名氏/資料不全</b>':'<b style="color:#B8860B">待掛號建檔</b>');
+        return `<tr${bg} onclick="${isReg?`openRegCard(${gi})`:`startRegFor('${String(g.serial||"").replace(/'/g,"")}')`}"><td><b>${g.serial||"—"}</b></td><td>${g.name||"（無名）"}</td>
+          <td>${g.hasId?"✔有":"✘無"}</td><td>${lvBadge(g.tri)}</td><td>${g.chartNo||"—"}</td><td>${stTxt}</td></tr>`;
+      }).join("")+`</table></div>`;
+    const triHtml=`
       <b>已檢傷病人列表（點列開始登打、完善資訊）</b>
       <div style="overflow:auto"><table class="rec">
       <tr><th>級</th><th>編號</th><th>時間</th><th>患者</th><th>判斷依據</th><th>登錄</th></tr>`+
@@ -1381,7 +1420,9 @@ function renderHome(){
         <td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.time}</td><td>${r.name||"未知"}</td>
         <td>${String(r.criteria||"").substring(0,28)}</td><td>${r.registered?"✅":"<span style=color:#A33>未登錄</span>"}</td></tr>`).join("")+
       `</table></div>`;
-  }else{ // 行政
+    // 掛號：佇列為主；社工：登錄清單為主，佇列在後供補身分
+    body.innerHTML=isReg?(btnsHtml+queueHtml):(btnsHtml+triHtml+"<div style='height:10px'></div>"+queueHtml);
+    }else{ // 行政
     $("homeTitle").textContent="行政管理主畫面";
     const dispoOpts=(listCache.dispositions&&listCache.dispositions.length?listCache.dispositions:["","檢傷區","急救區","治療區","觀察區","送檢(檢查)","送OR(手術)","送病房(住院)","留觀","出院","轉院","死亡","其他"]);
     const sel=(cur,sheet,row)=>`<select onchange="postDispo('${sheet}',${row},this)">`+dispoOpts.map(o=>`<option${o===cur?" selected":""}>${o}</option>`).join("")+`</select>`;
@@ -1611,6 +1652,63 @@ function sitrep(){
     "＊本摘要由現場檢傷輔助系統自動彙整，詳細名單請見傷患清單看板／試算表。"
   ].filter(x=>x!=="" || true).join("\n");
   showText("大量傷患狀況摘要報告",txt);
+}
+let rcIdx=-1;
+async function openRegCard(gi){
+  const g=listCache.register[gi];
+  if(!g)return;
+  rcIdx=gi;
+  $("rcWho").textContent=`編號 ${g.serial||"—"}　登錄：${g.staff||""}`;
+  $("rcStatus").innerHTML=g.regDone?'<span style="color:#1B7A2E">✅ 已建檔</span>':'<span style="color:#B8860B">待建檔</span>';
+  $("rcName").value=g.name||"";$("rcSex").value=g.sex||"";
+  $("rcNatId").value="";$("rcBirth").value="";$("rcTel").value="";
+  $("rcChart").value=g.chartNo||"";
+  $("regCard").showModal();
+  // 完整資料由編號查詢帶入
+  const url=$("apiUrl").value.trim();
+  if(url&&g.serial){
+    try{
+      const q=url+(url.includes("?")?"&":"?")+"action=lookup&serial="+encodeURIComponent(g.serial)+
+        "&chartNo=&event="+encodeURIComponent(curEvent)+
+        "&adminkey="+encodeURIComponent($("adminKey").value||"")+
+        "&key="+encodeURIComponent($("apiKey").value||"");
+      const j=await (await fetch(q)).json();
+      const r=j.register||{};
+      if(r.natId)$("rcNatId").value=r.natId;
+      if(r.birth)$("rcBirth").value=r.birth;
+      if(r.telMobile)$("rcTel").value=r.telMobile;
+      if(r.chartNo&&!$("rcChart").value)$("rcChart").value=r.chartNo;
+    }catch(e){}
+  }
+}
+async function confirmRegDone(btn){
+  const g=listCache.register[rcIdx];
+  if(!g||!g.row)return;
+  btn.disabled=true;
+  try{
+    const res=await fetch($("apiUrl").value.trim(),{method:"POST",body:JSON.stringify({mode:"regmark",row:g.row,value:"V",apiKey:$("apiKey").value||undefined})});
+    const j=await res.json().catch(()=>({ok:res.ok}));
+    if(j.ok===false||!res.ok)throw new Error(j.error||res.status);
+    g.regDone=true;
+    showToast("✅ 已標記建檔完成，警示已消除");
+    $("regCard").close();renderHome();
+  }catch(e){showToast("標記失敗："+e.message,true);}
+  btn.disabled=false;
+}
+async function saveRegChart(btn){
+  const g=listCache.register[rcIdx];
+  const v=$("rcChart").value.trim();
+  if(!g||!g.row||!v)return;
+  const orig=btn.textContent;btn.disabled=true;btn.textContent="…";
+  try{
+    const res=await fetch($("apiUrl").value.trim(),{method:"POST",body:JSON.stringify({mode:"regchart",row:g.row,value:v,apiKey:$("apiKey").value||undefined})});
+    const j=await res.json().catch(()=>({ok:res.ok}));
+    if(j.ok===false||!res.ok)throw new Error(j.error||res.status);
+    g.chartNo=v;btn.textContent="✓";
+    showToast("✅ 病歷號已回填（檢傷轉錄將自動帶入）");
+    renderHome();
+  }catch(e){btn.textContent="失敗";showToast("回填失敗："+e.message,true);}
+  setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},1500);
 }
 function startRegFor(serial){
   setMode("reg");
