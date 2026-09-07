@@ -477,7 +477,7 @@ table.rec th{background:#EEE}
       <input type="text" id="evCode" class="w9" list="evList" placeholder="例：0904A（空白＝自動）">
       <button class="ghost" style="padding:3px 10px" onclick="openEventPicker('login')">📂 選擇事件</button>
       <datalist id="evList"></datalist>
-      <span style="font-size:12px;color:#666">同一事件＝同一資料夾；當日第二事件請用不同代號</span>
+      <span id="evHint" style="font-size:12px;color:#666">登入時自動帶入管理者設定的目前事件</span>
     </div>
     <details style="margin-top:8px">
       <summary style="cursor:pointer;font-size:13px;color:#555">進階設定（單位統一號／端點／人員名單，之後匯入人資系統）</summary>
@@ -1111,6 +1111,13 @@ async function loadStaff(){
       sel.appendChild(o);
     });
     sel.onchange=()=>{const r=sel.selectedOptions[0].dataset.role;if(r)$("roleSel").value=r;};
+    if(j.currentEvent){
+      $("evCode").value=j.currentEvent;
+      $("evCode").style.background="#C8E6C9";
+      $("evHint").textContent="✅ 已自動帶入目前事件："+j.currentEvent+"（直接按進入即可）";
+    }else{
+      $("evHint").textContent="尚未設定目前事件——請管理者於行政畫面「開設/切換目前事件」。";
+    }
     try{
       const lr=await fetch(url+(url.includes("?")?"&":"?")+"action=list&key="+encodeURIComponent($("apiKey").value||""));
       const lj=await lr.json();
@@ -1124,8 +1131,7 @@ function doLogin(){
   if(!emp){$("loginMsg").textContent="請輸入員編。";return;}
   const name=$("staffSel").value||$("staffManual").value.trim();
   unitPrefix=$("unitCode").value.trim();
-  const d=new Date(),p2=n=>String(n).padStart(2,"0");
-  curEvent=$("evCode").value.trim()||`${p2(d.getMonth()+1)}${p2(d.getDate())}A`;
+  curEvent=$("evCode").value.trim();
   updateEvChip();
   userRole=$("roleSel").value;
   $("staff").value=emp+(name?"-"+name:"");
@@ -1321,6 +1327,7 @@ async function refreshList(){
     const j=await res.json();
     if(!j.ok)throw new Error(j.error||"");
     listCache=j;
+    if(j.currentEvent!==undefined)listCache.currentEvent=j.currentEvent;
     renderHome();
   }catch(e){$("homeStats").textContent="清單載入失敗："+e.message;}
 }
@@ -1368,7 +1375,9 @@ function renderHome(){
     const evSel=`<select onchange="switchEvent(this.value)" style="font-size:15px;font-weight:bold"><option value=""${curEvent===""?" selected":""}>全部事件</option>`+
       evs.map(e=>`<option${e===curEvent?" selected":""}>${e}</option>`).join("")+`</select>`;
     body.innerHTML=`
-      <div style="margin-bottom:6px"><b>📁 事件：</b>${evSel}</div>
+      <div style="margin-bottom:6px"><b>📁 事件：</b>${evSel}
+        <button class="ghost" style="padding:2px 10px;margin-left:8px;border-color:#B0512B;color:#B0512B" onclick="setCurrentEvent()">⚑ 開設/切換目前事件</button>
+        <span id="ceLabel" style="font-size:13px;color:#B0512B;font-weight:bold;margin-left:6px">${listCache.currentEvent?"目前事件："+listCache.currentEvent:"（尚未設定目前事件）"}</span></div>
       <div style="margin-bottom:8px"><b>去向統計：</b>${Object.keys(dc).map(k=>k+" "+dc[k]).join("｜")||"—"}
         <button class="ghost" style="padding:2px 10px;margin-left:10px" onclick="opsAnalysis()">📊 營運分析</button>
         <button class="ghost" style="padding:2px 10px" onclick="sitrep()">📄 匯出摘要報告</button>
@@ -1605,6 +1614,22 @@ async function postDispo(sheet,row,sel){
   }catch(e){sel.style.background="#FFCDD2";}
   sel.disabled=false;
 }
+async function setCurrentEvent(){
+  if(!$("adminKey").value){alert("此操作需要管理金鑰（⚙ 設定）。");return;}
+  const v=prompt("輸入「目前事件」代號：\n（所有人登入將自動帶入；一般人員的存檔一律歸入此事件）\n輸入新代號＝開設新事件；清空＝取消強制歸屬",listCache.currentEvent||"");
+  if(v===null)return;
+  const url=$("apiUrl").value.trim();
+  try{
+    const res=await fetch(url,{method:"POST",body:JSON.stringify({mode:"setevent",value:v.trim(),
+      apiKey:$("apiKey").value||undefined,adminKey:$("adminKey").value})});
+    const j=await res.json();
+    if(!j.ok)throw new Error(j.error||"");
+    listCache.currentEvent=v.trim();
+    curEvent=v.trim();updateEvChip();
+    showToast("⚑ 目前事件已設為："+(v.trim()||"（未設定）"));
+    refreshList();
+  }catch(e){showToast("設定失敗："+e.message,true);}
+}
 function openAdminPanel(){
   const u=$("apiUrl").value.trim();
   if(u)window.open(u+(u.includes("?")?"&":"?")+"view=admin"+(curEvent?"&event="+encodeURIComponent(curEvent):"")+
@@ -1722,7 +1747,7 @@ async function sendRegQueue(){
   for(const r of regQueue){
     if(r.sent)continue;
     try{
-      const res=await fetch(url,{method:"POST",body:JSON.stringify({...r,apiKey:$("apiKey").value||undefined})});
+      const res=await fetch(url,{method:"POST",body:JSON.stringify({...r,apiKey:$("apiKey").value||undefined,adminKey:$("adminKey").value||undefined})});
       const j=await res.json().catch(()=>({ok:res.ok}));
       if(j.ok!==false&&res.ok){r.sent=true;if(j.row)r.row=j.row;ok++;}else fail++;
     }catch(e){fail++;}
@@ -1864,7 +1889,7 @@ async function saveRecord(){
     st.textContent="傳送中…"; st.style.color="#555";
     try{
       const isGAS=/script\.google(usercontent)?\.com/.test(url);
-      const payload=JSON.stringify(isGAS?{...r,apiKey:$("apiKey").value||undefined}:r);
+      const payload=JSON.stringify(isGAS?{...r,apiKey:$("apiKey").value||undefined,adminKey:$("adminKey").value||undefined}:r);
       const opts=isGAS
         ? {method:"POST",body:payload}   // 簡單請求，免 CORS preflight
         : {method:"POST",headers:{"Content-Type":"application/json",
