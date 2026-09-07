@@ -669,7 +669,7 @@ table.rec th{background:#EEE}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.07-4";
+const APP_VERSION = "v2026.09.07-5";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1399,13 +1399,34 @@ function renderHome(){
         <button style="font-size:17px;padding:12px 22px" onclick="startRegFor('')">＋ 新增登錄（檢傷未完成也可先作業）</button>
         <button class="ghost" style="font-size:15px" onclick="startScan('__homeScan')">📷 掃編號/病歷號開始</button>
       </div>`;
+    // 聯集佇列：檢傷有、登錄沒有的 → 藍燈「待社工登錄」
+    const regsAct=listCache.register.map((g,gi)=>({g,gi})).filter(o=>o.g.dispo!=="作廢");
+    const regSerials=new Set(regsAct.map(o=>String(o.g.serial||"").trim()).filter(Boolean));
+    const pending=listCache.triage.filter(r=>r.dispo!=="作廢"&&String(r.mciNo||"").trim()&&!regSerials.has(String(r.mciNo).trim()));
+    let nAnon=0,nWait=0,nDone=0;
+    regsAct.forEach(({g})=>{
+      if(g.regDone)nDone++;
+      else if(!String(g.name||"").trim()||!g.hasId)nAnon++;
+      else nWait++;
+    });
+    const total=pending.length+regsAct.length;
+    const pendRows=pending.slice().reverse().map(r=>
+      `<tr style="background:#D6E6FA;cursor:pointer" onclick="${isReg
+        ?`showToast('編號 ${String(r.mciNo).replace(/'/g,"")}：尚未由社工取得登錄資料，暫無法建檔',true)`
+        :`startRegFor('${String(r.mciNo||"").replace(/'/g,"")}')`}">
+        <td><b>${r.mciNo}</b></td><td>${r.name||"（未知）"}</td><td>—</td>
+        <td>${lvBadge(r.level)}</td><td>${r.chartNo||"—"}</td>
+        <td><b style="color:#1A56A8">⏳ 待社工登錄</b></td></tr>`).join("");
     const queueHtml=`
       <b>${isReg?"掛號建檔佇列（您的主要工作區）":"登錄狀態總覽"}</b>
-      <span style="font-size:12px;color:#666">　<span style="background:#FFF3B0;padding:0 6px">黃＝待掛號建檔</span>
+      <b style="color:#333">｜共 ${total} 位：<span style="color:#1A56A8">待社工登錄 ${pending.length}</span>｜<span style="color:#B8860B">待建檔 ${nWait}</span>｜<span style="color:#B00">無名氏 ${nAnon}</span>｜✅已建檔 ${nDone}</b><br>
+      <span style="font-size:12px;color:#666"><span style="background:#D6E6FA;padding:0 6px">藍＝已檢傷，社工尚未登錄${isReg?"（暫無法建檔）":"（請前往登打）"}</span>
+      <span style="background:#FFF3B0;padding:0 6px">黃＝待掛號建檔</span>
       <span style="background:#FFD6D6;padding:0 6px">紅＝無名氏/身分不全${isReg?"":"（請優先查明身分）"}</span>　✅＝已建檔</span>
       <div style="overflow:auto;margin-bottom:12px"><table class="rec">
       <tr><th>編號</th><th>姓名</th><th>身分證</th><th>級</th><th>病歷號</th><th>狀態</th></tr>`+
-      listCache.register.map((g,gi)=>({g,gi})).filter(o=>o.g.dispo!=="作廢").reverse().map(({g,gi})=>{
+      pendRows+
+      regsAct.slice().reverse().map(({g,gi})=>{
         const anon=!String(g.name||"").trim()||!g.hasId;
         const bg=g.regDone?"":(anon?' style="background:#FFD6D6;cursor:pointer"':' style="background:#FFF3B0;cursor:pointer"');
         const stTxt=g.regDone?"✅已建檔":(anon?'<b style="color:#B00">⚠ 無名氏/資料不全</b>':'<b style="color:#B8860B">待掛號建檔</b>');
