@@ -706,7 +706,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.17-23";
+const APP_VERSION = "v2026.09.17-25";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -2170,16 +2170,20 @@ async function openRecords(){
     `檢傷 ${t.length} 筆｜1級 ${byLv[1]}、2級 ${byLv[2]}、3級 ${byLv[3]}、4級 ${byLv[4]}、5級 ${byLv[5]}｜登錄 ${listCache.register.filter(x=>x.dispo!=="作廢").length} 筆${localUnsent}`;
   const tb=$("recTable");
   tb.innerHTML="<tr><th>#</th><th>編號</th><th>時間</th><th>患者</th><th>級數</th><th>判斷依據</th><th>去向</th></tr>"+
-    t.slice().reverse().map((r,i)=>`<tr><td>${i+1}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.time}</td><td>${r.name||""}</td><td>${r.level??""}</td><td>${String(r.criteria||"").substring(0,26)}</td><td>${r.dispo||""}</td></tr>`).join("");
+    t.slice().reverse().map((r,i)=>`<tr><td>${i+1}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.time}</td><td>${r.name||regNameOf(r.mciNo)||""}</td><td>${r.level??""}</td><td>${String(r.criteria||"").substring(0,26)}</td><td>${r.dispo||""}</td></tr>`).join("");
   if(!$("aiAnalyzeBar")){
     const bar=document.createElement("div");
     bar.id="aiAnalyzeBar";bar.style.margin="8px 0";
     bar.innerHTML='<button class="ghost" style="border-color:#7B1FA2;color:#7B1FA2;font-weight:bold" onclick="analyzeSituation()">🧠 AI 分析重點</button> <button class="ghost" style="border-color:#1565C0;color:#1565C0;font-weight:bold" onclick="triageQuality()">📐 分級調整分析</button> <span id="aiAnalyzeStatus" style="font-size:12px;color:#666"></span><div id="aiAnalyzeOut" style="white-space:pre-wrap;background:#F6F0FA;border:1px solid #D9C2E8;border-radius:6px;padding:10px;margin-top:6px;display:none;font-size:14px;line-height:1.6"></div>';
     $("recStats").after(bar);
   }
+  if($("aiAnalyzeOut")){$("aiAnalyzeOut").style.display="none";$("aiAnalyzeOut").textContent="";}
+  if($("aiAnalyzeStatus"))$("aiAnalyzeStatus").textContent="";
   $("recDlg").showModal();
 }
-function triageQuality(){
+async function triageQuality(){
+  const url0=$("apiUrl").value.trim();
+  if(url0){$("aiAnalyzeStatus").textContent="讀取最新資料…";try{await refreshList();}catch(e){}}
   const t=listCache.triage.filter(r=>r.dispo!=="作廢");
   const out=$("aiAnalyzeOut"),st=$("aiAnalyzeStatus");
   if(!t.length){showToast("尚無資料可分析",true);return;}
@@ -2211,9 +2215,10 @@ function triageQuality(){
   st.textContent="✓ 分級調整分析（本機計算，未送雲端）";
 }
 async function analyzeSituation(){
+  const url=$("apiUrl").value.trim();
+  if(url){$("aiAnalyzeStatus").textContent="讀取最新資料…";try{await refreshList();}catch(e){}}
   const t=listCache.triage.filter(r=>r.dispo!=="作廢");
   if(!t.length){showToast("尚無資料可分析",true);return;}
-  const url=$("apiUrl").value.trim();
   const st=$("aiAnalyzeStatus"),out=$("aiAnalyzeOut");
   if(!url){st.textContent="需設定 API 端點";return;}
   const c={1:0,2:0,3:0,4:0,5:0},slot={},dc={};
