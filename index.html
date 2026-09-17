@@ -706,7 +706,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.17-22";
+const APP_VERSION = "v2026.09.17-23";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -2300,6 +2300,9 @@ $("memoBox").addEventListener("input",()=>{memoEdited=($("memoBox").value!==$("s
   }catch(e){}
 })();
 $("verTag").textContent=APP_VERSION;
+$("verTag").style.cursor="pointer";
+$("verTag").title="點擊確認版本；若與最新不符請重新上傳 GitHub 並加 ?v=數字 重載";
+$("verTag").onclick=()=>alert("目前執行版本："+APP_VERSION+"\n\n如剛更新過 GitHub 卻仍是舊版，請在網址結尾加 ?v="+Date.now()+" 重新開啟以清除快取。");
 setNow(); setMode("quick"); $("loginDlg").showModal();
 </script>
 </body>
