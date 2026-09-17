@@ -706,7 +706,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.17-19";
+const APP_VERSION = "v2026.09.17-20";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1518,7 +1518,7 @@ function renderHome(){
       <div style="overflow:auto"><table class="rec">
       <tr><th>級</th><th>編號</th><th>時間</th><th>患者</th><th>判斷依據</th><th>去向</th></tr>`+
       listCache.triage.slice().reverse().map(r=>`<tr${r.dispo==="作廢"?' style="opacity:.45;text-decoration:line-through"':''}><td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td>
-        <td>${r.time}</td><td>${r.name||"未知"}</td><td>${String(r.criteria||"").substring(0,30)}</td>
+        <td>${r.time}</td><td>${r.name||regNameOf(r.mciNo)||"未知"}</td><td>${String(r.criteria||"").substring(0,30)}</td>
         <td>${sel(r.dispo||"","T",r.row)}</td></tr>`).join("")+
       `</table></div>
       <b>傷患登錄列表</b>
