@@ -47,8 +47,7 @@ function doPost(e) {
     if (!adminOk_(d.adminKey)) d.event = effEvent;      // 一般人員：強制歸入
     else if (!d.event) d.event = effEvent;              // 管理者：未指定時亦帶預設
 
-    if (d.mode === 'setevent') {                       // 管理者設定/開設目前事件
-      if (!adminOk_(d.adminKey)) return json_({ ok:false, error:'需要管理金鑰' });
+    if (d.mode === 'setevent') {                       // 開設/切換/清除目前事件（營運操作：一般金鑰即可）
       PropertiesService.getScriptProperties().setProperty('CURRENT_EVENT', String(d.value||'').trim());
       return json_({ ok:true, currentEvent: String(d.value||'').trim() });
     }
@@ -59,7 +58,7 @@ function doPost(e) {
         d.cName||'', d.cRel||'', d.cTel||'', d.cDone?'V':'', d.cArr?'V':'',
         d.triage||'', d.injury||'', d.summary||'', d.memo||'',
         d.staff||'', d.disposition||'', d.chartNo||'', d.event||'', '']);
-      return json_({ ok:true, row: sh.getLastRow() });
+      return json_({ ok:true, row: sh.getLastRow(), ev: d.event||'' });
     }
     if (d.mode === 'ping') {                           // 端點體檢
       const sp = PropertiesService.getScriptProperties();
@@ -97,6 +96,19 @@ function doPost(e) {
       let out; try { out = JSON.parse(txt); } catch (e) { out = { transcript: txt }; }
       return json_({ ok:true, result: out });
     }
+    if (d.mode === 'analyze') {                        // MCI 現場數據 AI 重點分析
+      const GKA = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
+      if (!GKA) return json_({ ok:false, error:'請於指令碼屬性新增 GEMINI_API_KEY' });
+      const mdlA = PropertiesService.getScriptProperties().getProperty('GEMINI_MODEL') || 'gemini-3.6-flash';
+      const AP = '你是大量傷患事件(MCI)的現場指揮參謀。以下是「去識別化」的檢傷統計數據(JSON)。請以繁體中文，用條列給出指揮官最該注意的重點，聚焦：1)傷情嚴重度分布與重症負荷 2)到量趨勢與尖峰 3)資源與去向瓶頸(未定去向、待登錄、家屬未連繫) 4)風險提醒與建議下一步。務實精簡，每點一行，不超過8點；只根據數據，不杜撰個案細節，不含任何姓名或病歷號。\n\n數據：' + (d.payload||'');
+      const payA = { contents:[{parts:[{text:AP}]}], generationConfig:{temperature:0.2} };
+      const resA = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/'+mdlA+':generateContent?key='+GKA,
+        { method:'post', contentType:'application/json', payload:JSON.stringify(payA), muteHttpExceptions:true });
+      let jA; try{ jA=JSON.parse(resA.getContentText()); }catch(e){ return json_({ ok:false, error:'HTTP '+resA.getResponseCode() }); }
+      if (jA.error) return json_({ ok:false, error:'Gemini: '+jA.error.message });
+      let tA=''; try{ tA=jA.candidates[0].content.parts[0].text; }catch(e){ return json_({ ok:false, error:'Gemini 未回傳文字' }); }
+      return json_({ ok:true, text:tA });
+    }
     if (d.mode === 'vitals_ocr') {                     // 生命徵象照片讀值
       const GK = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
       if (!GK) return json_({ ok:false, error:'請於指令碼屬性新增 GEMINI_API_KEY' });
@@ -127,6 +139,14 @@ function doPost(e) {
       t2 = String(t2).replace(/^\s*```(?:json)?/i,'').replace(/```\s*$/,'').trim();
       let o2; try{ o2=JSON.parse(t2); }catch(e){ o2={ note:t2 }; }
       return json_({ ok:true, result:o2 });
+    }
+    if (d.mode === 'regedit') {                        // 掛號/社工補正基本資料（白名單欄位）
+      const shE = sheet_(R_SHEET, R_HEADERS);
+      const mapE = { name:'姓名', sex:'性別', birth:'生日', natId:'身分證/護照', telMobile:'手機' };
+      Object.keys(mapE).forEach(function(k){
+        if (d[k] !== undefined) shE.getRange(Number(d.row), R_HEADERS.indexOf(mapE[k]) + 1).setValue(String(d[k]||''));
+      });
+      return json_({ ok:true });
     }
     if (d.mode === 'regmark') {                        // 掛號建檔完成確認
       const sh = sheet_(R_SHEET, R_HEADERS);
@@ -180,7 +200,7 @@ function doPost(e) {
       d.summary||'', (d.criteria||[]).map(x=>'['+x.level+']'+x.text).join('；'),
       d.basis||'', d.autoLevel, d.finalLevel, d.override, d.memo||'',
       d.staff||'', d.mode||'', d.disposition||'', '', d.event||'']);
-    return json_({ ok:true, row: sh.getLastRow() });
+    return json_({ ok:true, row: sh.getLastRow(), ev: d.event||'' });
   } catch(err) { return json_({ ok:false, error:String(err) }); }
 }
 
@@ -201,9 +221,8 @@ function lookup_(serial, key, chartNo, ev, adminkey) {
   const KEY = PropertiesService.getScriptProperties().getProperty('API_KEY') || '';
   if (KEY && key !== KEY) return { ok:false, error:'unauthorized' };
   serial = String(serial||'').trim(); chartNo = String(chartNo||'').trim();
-  const act = Date.now() - activeMs_();
-  const elev = adminOk_(adminkey);
-  const tOk = function(r){ return elev || rowTs_(r) >= act; };
+  const act = Date.now() - activeMs_(), yr1 = Date.now() - 365*86400000;
+  const tOk = function(r){ return ev ? rowTs_(r) >= yr1 : rowTs_(r) >= act; };
   if (!serial && !chartNo) return { ok:false, error:'no serial' };
   const T = h => T_HEADERS.indexOf(h), R = h => R_HEADERS.indexOf(h);
   const tv = data_(sheet_(T_SHEET,T_HEADERS), T_HEADERS.length);
@@ -308,11 +327,12 @@ function events_(key, adminkey, from, to) {
     });
   });
   let evs = Object.keys(map).map(function(k){return map[k];}).filter(function(m){return m.end>=yr;});
-  if (!elev) evs = evs.filter(function(m){return m.end>=act;});
-  if (elev && from) { const f=new Date(from).getTime(); if(!isNaN(f)) evs=evs.filter(function(m){return m.end>=f;}); }
-  if (elev && to)   { const t2=new Date(to).getTime()+86400000; if(!isNaN(t2)) evs=evs.filter(function(m){return m.start<=t2;}); }
+  if (!from && !to) evs = evs.filter(function(m){return m.end>=act;});   // 無查詢：僅進行中（近N天）
+  if (from) { const f=new Date(from).getTime(); if(!isNaN(f)) evs=evs.filter(function(m){return m.end>=f;}); }
+  if (to)   { const t2=new Date(to).getTime()+86400000; if(!isNaN(t2)) evs=evs.filter(function(m){return m.start<=t2;}); }
   evs.sort(function(a,b){return b.end-a.end;});
   return { ok:true, admin:elev, activeDays:activeMs_()/86400000,
+    pinned: !!PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT'),
     currentEvent: PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT') ||
       Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyyMMdd'),
     events: evs.map(function(m){return {
@@ -359,14 +379,15 @@ function list_(key, ev, adminkey, from, to) {
   tvAll.forEach(function(o){ const e=String(o.r[T('事件')]||'').trim(); if(e) evSet[e]=1; });
   rvAll.forEach(function(o){ const e=String(o.r[R('事件')]||'').trim(); if(e) evSet[e]=1; });
   const evMatch = function(v){ v=String(v||'').trim(); return !ev ? true : v===ev; };  // 嚴格分批：空白事件僅於「全部事件」可見
-  const elev = adminOk_(adminkey);
   const now = Date.now(), yr = now-365*86400000, act = now-activeMs_();
   let fT = 0, tT = Infinity;
-  if (elev && from) { const f=new Date(from).getTime(); if(!isNaN(f)) fT=f; }
-  if (elev && to)   { const t2=new Date(to).getTime()+86400000; if(!isNaN(t2)) tT=t2; }
+  if (from) { const f=new Date(from).getTime(); if(!isNaN(f)) fT=f; }
+  if (to)   { const t2=new Date(to).getTime()+86400000; if(!isNaN(t2)) tT=t2; }
+  const hasRange = !!(from||to);
   const timeOk = function(o){ const t=rowTs_(o.r);
-    if(!elev) return t>=act;                      // 一般：僅進行中窗口
-    return t>=Math.max(yr,fT) && t<=tT; };        // 管理：一年內＋自訂區間
+    if (ev) return t>=yr;                                   // 指定事件夾：一年內皆可見
+    if (hasRange) return t>=Math.max(yr,fT) && t<=tT;       // 時間查詢：一年內區間
+    return t>=act; };                                       // 預設：進行中窗口（近N天）
   const tv = tvAll.filter(function(o){ return evMatch(o.r[T('事件')]) && timeOk(o); });
   const rv = rvAll.filter(function(o){ return evMatch(o.r[R('事件')]) && timeOk(o); });
   const regSerials = {};
@@ -376,13 +397,25 @@ function list_(key, ev, adminkey, from, to) {
     time:fmtT_(r[T('抵達時間')]), name:r[T('患者')], sex:r[T('性別')], attr:r[T('屬性')],
     level:r[T('最終級數')], criteria:r[T('判斷依據')], basis:r[T('依據全文')],
     dispo:r[T('去向')], registered:!!regSerials[String(r[T('大量傷患編號')]).trim()],
-    done:!!r[T('已轉錄')], event:r[T('事件')]||'' }; }).slice(-300);
-  const register = rv.map(function(o){ const r=o.r; return {
+    done:!!r[T('已轉錄')], event:r[T('事件')]||'', autoLv:r[T('綜合評級')] }; }).slice(-300);
+  // 同一大量傷患編號：僅保留收件時間最新一筆（避免多筆登錄造成各畫面抓到不同版本）
+  const regBest = {};
+  rv.forEach(function(o){ const r=o.r;
+    const s = String(r[R('大量傷患編號')]||'').trim();
+    const ts = rowTs_(r);
+    if (!s) { regBest['__row'+o.row] = {o:o, ts:ts}; return; }   // 無編號者各自獨立
+    if (!regBest[s] || ts >= regBest[s].ts) regBest[s] = {o:o, ts:ts};
+  });
+  const register = Object.keys(regBest).map(function(k){ const o=regBest[k].o, r=o.r; return {
     row:o.row, serial:r[R('大量傷患編號')], name:r[R('姓名')], sex:r[R('性別')],
     tri:r[R('檢傷級數')], injury:r[R('傷情簡述')], cDone:r[R('完成連繫')],
     staff:r[R('登錄人員')], dispo:r[R('去向')], chartNo:r[R('病歷號')], event:r[R('事件')]||'',
     regDone:!!r[R('掛號建檔')], hasId:!!String(r[R('身分證/護照')]||'').trim() }; }).slice(-300);
-  return { ok:true, dispositions:DISPOSITIONS, events:Object.keys(evSet).sort(), triage:triage, register:register };
+  return { ok:true, dispositions:DISPOSITIONS, events:Object.keys(evSet).sort(),
+    pinned: !!PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT'),
+    currentEvent: PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT') ||
+      Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyyMMdd'),
+    triage:triage, register:register };
 }
 
 /* ---------- 人員名單 ---------- */
@@ -399,6 +432,7 @@ function getStaff_() {
   const last = sh.getLastRow();
   const rows = last>1 ? sh.getRange(2,1,last-1,3).getValues() : [];
   return { ok:true,
+    pinned: !!PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT'),
     currentEvent: PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT') ||
       Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyyMMdd'),
     staff: rows.filter(r=>r[1]).map(r=>({id:String(r[0]),name:String(r[1]),role:String(r[2]||'檢傷')})) };
@@ -440,8 +474,18 @@ function adminPage_(ev, adminkey) {
   const rowsO = data_(sh, T_HEADERS.length).map(function(r,i){return {r:r,row:i+2};}).filter(function(o){return String(o.r[0]||'')!=='收件時間' && evOk(o.r[evI]);});
   const rows = rowsO.map(function(o){return o.r;});
   const rsh = sheet_(R_SHEET, R_HEADERS);
-  const regsO = data_(rsh, R_HEADERS.length).map(function(r,i){return {r:r,row:i+2};}).filter(function(o){return String(o.r[0]||'')!=='收件時間' && evOk(o.r[evIR]);});
+  const regsAll = data_(rsh, R_HEADERS.length).map(function(r,i){return {r:r,row:i+2};}).filter(function(o){return String(o.r[0]||'')!=='收件時間' && evOk(o.r[evIR]);});
+  // 同一編號僅保留收件時間最新一筆
+  const rSerIdx = R_HEADERS.indexOf('大量傷患編號');
+  const regBestA = {};
+  regsAll.forEach(function(o){ const s=String(o.r[rSerIdx]||'').trim(); const ts=rowTs_(o.r);
+    if(!s){ regBestA['__r'+o.row]={o:o,ts:ts}; return; }
+    if(!regBestA[s]||ts>=regBestA[s].ts) regBestA[s]={o:o,ts:ts}; });
+  const regsO = Object.keys(regBestA).map(function(k){return regBestA[k].o;});
   const regs = regsO.map(function(o){return o.r;});
+  // 編號→登錄姓名 對照（補檢傷清單患者欄）
+  const nameByReg = {};
+  regs.forEach(function(r){ const s=String(r[rSerIdx]||'').trim(); const nm=String(r[R_HEADERS.indexOf('姓名')]||'').trim(); if(s&&nm) nameByReg[s]=nm; });
   const iLv=T_HEADERS.indexOf('最終級數'), iNm=T_HEADERS.indexOf('患者'),
         iNo=T_HEADERS.indexOf('病歷號/流水號'), iTm=T_HEADERS.indexOf('抵達時間'),
         iDp=T_HEADERS.indexOf('去向'), iCr=T_HEADERS.indexOf('判斷依據'),
@@ -456,7 +500,7 @@ function adminPage_(ev, adminkey) {
     '<h3>檢傷清單（去向可直接修改，會寫回試算表）</h3>'+
     '<table><tr><th>級</th><th>編號</th><th>抵達時間</th><th>病歷號</th><th>患者</th><th>判斷依據</th><th>去向</th></tr>';
   rows.forEach((r,idx)=>{
-    html += '<tr>'+lvTd_(r[iLv])+'<td><b>'+(r[iMc]||'—')+'</b></td><td>'+fmtT_(r[iTm])+'</td><td>'+r[iNo]+'</td><td>'+r[iNm]+
+    html += '<tr>'+lvTd_(r[iLv])+'<td><b>'+(r[iMc]||'—')+'</b></td><td>'+fmtT_(r[iTm])+'</td><td>'+r[iNo]+'</td><td>'+(String(r[iNm]||'').trim()||nameByReg[String(r[iMc]||'').trim()]||'')+
       '</td><td>'+String(r[iCr]).substring(0,50)+'</td>'+
       '<td><select onchange="setD('+rowsO[idx].row+',this)">'+opt(r[iDp]||'')+'</select></td></tr>';
   });
