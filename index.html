@@ -187,6 +187,42 @@ table.rec th{background:#EEE}
   border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.3);transition:transform .25s;z-index:9999;max-width:92vw}
 #toast.show{transform:translateX(-50%) translateY(0)}
 #toast.warn{background:#A33}
+
+/* ===== 角色×裝置 視野優化 ===== */
+#homeBody{font-size:15px}
+#homeStats{font-size:15px;font-weight:bold}
+table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
+
+/* 電腦大螢幕：批價/掛號建檔、檢傷回電腦批次轉錄 */
+@media (min-width:1000px){
+  #homeTitle{font-size:22px}
+  #homeStats{font-size:17px}
+  #homeBody{font-size:17px}
+  #homeBody button{font-size:17px}
+  table.rec th{font-size:16px;padding:9px 10px}
+  table.rec td{font-size:17px;padding:10px}
+  table.rec.flowT td{font-size:18px;padding:13px 10px}
+  #transferDlg{width:780px;max-width:92vw}
+  #transferDlg input,#transferDlg textarea{font-size:19px}
+  #regCard{width:700px;max-width:92vw}
+  #regCard input{font-size:19px}
+  dialog .dhead{font-size:18px}
+  .tabbar .tab{font-size:16px;padding:8px 20px}
+}
+
+/* 手機：社工現場單手操作 */
+@media (max-width:640px){
+  table.rec.flowT th:nth-child(3),table.rec.flowT td:nth-child(3),
+  table.rec.flowT th:nth-child(5),table.rec.flowT td:nth-child(5),
+  table.rec.flowT th:nth-child(6),table.rec.flowT td:nth-child(6){display:none}
+  table.rec.flowT td{font-size:16.5px;padding:14px 8px}
+  table.rec.flowT th{font-size:14px}
+  #homeBody{font-size:15.5px}
+  #homeBody b{font-size:15px}
+  #regPane .row label{font-size:15px;font-weight:bold}
+  #regPane input[type=text],#regPane select{min-height:46px}
+  #regPane textarea{font-size:16px}
+}
 </style>
 </head>
 <body>
@@ -669,7 +705,7 @@ table.rec th{background:#EEE}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.07-5";
+const APP_VERSION = "v2026.09.17-12";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -696,6 +732,7 @@ let mode = "quick";
 let userRole = "檢傷", unitPrefix = "", serialCounter = 0;
 let prevTriage = null; // 前次檢傷參考（僅顯示，不代入本次分級）
 let curEvent = "";
+function todayEv(){const d=new Date(),p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;}
 let regQueue = [];
 let curCat=null, curCpl=null;
 let selected = new Map();   // code -> {t,l,s,c,cpl}
@@ -1145,10 +1182,13 @@ async function loadStaff(){
       sel.appendChild(o);
     });
     sel.onchange=()=>{const r=sel.selectedOptions[0].dataset.role;if(r)$("roleSel").value=r;};
+    listCache.pinned=!!j.pinned;
     if(j.currentEvent){
       $("evCode").value=j.currentEvent;
-      $("evCode").style.background="#C8E6C9";
-      $("evHint").textContent="✅ 已自動帶入目前事件："+j.currentEvent+"（直接按進入即可）";
+      $("evCode").style.background=j.pinned?"#FFE0B2":"#C8E6C9";
+      $("evHint").innerHTML=j.pinned
+        ?'<b style="color:#B0512B">⚑ 管理者釘選事件：'+j.currentEvent+'</b>（所有存檔將歸入此事件；若該事件已結案，請管理者於行政畫面 ⚑ 清空以回到日期自動）'
+        :"✅ 已自動帶入今日事件："+j.currentEvent+"（直接按進入即可）";
     }else{
       $("evHint").textContent="尚未設定目前事件——請管理者於行政畫面「開設/切換目前事件」。";
     }
@@ -1165,7 +1205,7 @@ function doLogin(){
   if(!emp){$("loginMsg").textContent="請輸入員編。";return;}
   const name=$("staffSel").value||$("staffManual").value.trim();
   unitPrefix=$("unitCode").value.trim();
-  curEvent=$("evCode").value.trim();
+  curEvent=$("evCode").value.trim()||listCache.currentEvent||todayEv();
   updateEvChip();
   userRole=$("roleSel").value;
   $("staff").value=emp+(name?"-"+name:"");
@@ -1176,7 +1216,11 @@ function doLogin(){
   setMode("home");
   refreshList();
 }
-function updateEvChip(){$("evChip").textContent="📁 "+(curEvent||"全部事件");}
+function updateEvChip(){
+  const pin=listCache.pinned&&curEvent===listCache.currentEvent;
+  $("evChip").textContent=(pin?"⚑ ":"📁 ")+(curEvent||"全部事件");
+  $("evChip").title=pin?"管理者釘選中：存檔強制歸入此事件（結案請清空釘選）":"點擊切換事件";
+}
 function changeEvent(){ openEventPicker("app"); }
 let evPickMode="app";
 function openEventPicker(mode){
@@ -1362,6 +1406,16 @@ async function refreshList(){
     if(!j.ok)throw new Error(j.error||"");
     listCache=j;
     if(j.currentEvent!==undefined)listCache.currentEvent=j.currentEvent;
+    if(j.pinned!==undefined)listCache.pinned=j.pinned;
+    // 自動對時：使用者仍在預設事件（未主動選夾）而伺服器目前事件不同 → 以伺服器為準
+    if(listCache.currentEvent&&curEvent===todayEv()&&curEvent!==listCache.currentEvent){
+      curEvent=listCache.currentEvent;
+      updateEvChip();
+      showToast((listCache.pinned?"⚑ 已同步至管理者釘選事件：":"🕐 已對齊伺服器今日事件：")+curEvent);
+      refreshList();
+      return;
+    }
+    updateEvChip();
     renderHome();
   }catch(e){
     $("homeStats").innerHTML='<span style="color:#A33">清單載入失敗：'+friendlyErr(e)+'</span>';
@@ -1394,55 +1448,57 @@ function renderHome(){
   }else if(userRole==="社工"||userRole==="掛號"){
     const isReg=(userRole==="掛號");
     $("homeTitle").textContent=isReg?"掛號建檔主畫面":"傷患登錄主畫面";
-    const btnsHtml=`
+    // ---- 一人一列：以（事件內）大量傷患編號合併檢傷與登錄，同編號取最新登錄 ----
+    const map=new Map(), noKey=[];
+    listCache.triage.filter(r=>r.dispo!=="作廢").forEach(r=>{
+      const s=String(r.mciNo||"").trim();
+      if(!s){noKey.push({tri:r});return;}
+      const o=map.get(s)||{serial:s};o.tri=r;map.set(s,o);
+    });
+    listCache.register.forEach((r,gi)=>{
+      if(r.dispo==="作廢")return;
+      const s=String(r.serial||"").trim();
+      if(!s){noKey.push({reg:r,gi});return;}
+      const o=map.get(s)||{serial:s};o.reg=r;o.gi=gi;map.set(s,o);
+    });
+    const rows=[...map.values()].concat(noKey);
+    let nS=0,nY=0,nR=0,nD=0,nT=0;
+    const rowHtml=rows.slice().reverse().map(o=>{
+      const tri=o.tri,reg=o.reg;
+      const name=(reg&&reg.name)||(tri&&tri.name)||"";
+      const hasId=!!(reg&&reg.hasId);
+      const lv=(tri&&tri.level)||(reg&&reg.tri)||"";
+      const chart=(reg&&reg.chartNo)||(tri&&tri.chartNo)||"";
+      let bg="",st="";
+      if(!reg){nS++;bg="#D6E6FA";st='<b style="color:#1A56A8">⏳ 待社工登錄</b>';}
+      else if(!String(name).trim()||!hasId){nR++;bg="#FFD6D6";st='<b style="color:#B00">⚠ 無名氏/資料不全</b>';}
+      else if(!reg.regDone){nY++;bg="#FFF3B0";st='<b style="color:#B8860B">待掛號建檔</b>';}
+      else{nD++;st="✅ 已建檔";}
+      if(reg&&!tri){nT++;st+=' <span style="color:#777">｜待檢傷</span>';}
+      const sSafe=String(o.serial||"").replace(/'/g,"");
+      const click=o.serial
+        ?(isReg
+          ?(reg?`openRegCard(${o.gi})`:`showToast('編號 ${sSafe}：尚未由社工登錄，暫無法建檔',true)`)
+          :`startRegFor('${sSafe}')`)
+        :`showToast('此筆缺大量傷患編號，無法串接流程（請於原紀錄補編號）',true)`;
+      return `<tr style="cursor:pointer;${bg?`background:${bg}`:""}" onclick="${click}">
+        <td>${lvBadge(lv)}</td><td><b>${o.serial||"—"}</b></td>
+        <td>${(tri&&tri.time)||"（先行登錄）"}</td>
+        <td>${name||"（未知）"}</td><td>${reg?(hasId?"✔有":"✘無"):"—"}</td>
+        <td>${chart||"—"}</td><td>${st}</td></tr>`;
+    }).join("");
+    body.innerHTML=`
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <button style="font-size:17px;padding:12px 22px" onclick="startRegFor('')">＋ 新增登錄（檢傷未完成也可先作業）</button>
         <button class="ghost" style="font-size:15px" onclick="startScan('__homeScan')">📷 掃編號/病歷號開始</button>
-      </div>`;
-    // 聯集佇列：檢傷有、登錄沒有的 → 藍燈「待社工登錄」
-    const regsAct=listCache.register.map((g,gi)=>({g,gi})).filter(o=>o.g.dispo!=="作廢");
-    const regSerials=new Set(regsAct.map(o=>String(o.g.serial||"").trim()).filter(Boolean));
-    const pending=listCache.triage.filter(r=>r.dispo!=="作廢"&&String(r.mciNo||"").trim()&&!regSerials.has(String(r.mciNo).trim()));
-    let nAnon=0,nWait=0,nDone=0;
-    regsAct.forEach(({g})=>{
-      if(g.regDone)nDone++;
-      else if(!String(g.name||"").trim()||!g.hasId)nAnon++;
-      else nWait++;
-    });
-    const total=pending.length+regsAct.length;
-    const pendRows=pending.slice().reverse().map(r=>
-      `<tr style="background:#D6E6FA;cursor:pointer" onclick="${isReg
-        ?`showToast('編號 ${String(r.mciNo).replace(/'/g,"")}：尚未由社工取得登錄資料，暫無法建檔',true)`
-        :`startRegFor('${String(r.mciNo||"").replace(/'/g,"")}')`}">
-        <td><b>${r.mciNo}</b></td><td>${r.name||"（未知）"}</td><td>—</td>
-        <td>${lvBadge(r.level)}</td><td>${r.chartNo||"—"}</td>
-        <td><b style="color:#1A56A8">⏳ 待社工登錄</b></td></tr>`).join("");
-    const queueHtml=`
-      <b>${isReg?"掛號建檔佇列（您的主要工作區）":"登錄狀態總覽"}</b>
-      <b style="color:#333">｜共 ${total} 位：<span style="color:#1A56A8">待社工登錄 ${pending.length}</span>｜<span style="color:#B8860B">待建檔 ${nWait}</span>｜<span style="color:#B00">無名氏 ${nAnon}</span>｜✅已建檔 ${nDone}</b><br>
-      <span style="font-size:12px;color:#666"><span style="background:#D6E6FA;padding:0 6px">藍＝已檢傷，社工尚未登錄${isReg?"（暫無法建檔）":"（請前往登打）"}</span>
-      <span style="background:#FFF3B0;padding:0 6px">黃＝待掛號建檔</span>
-      <span style="background:#FFD6D6;padding:0 6px">紅＝無名氏/身分不全${isReg?"":"（請優先查明身分）"}</span>　✅＝已建檔</span>
-      <div style="overflow:auto;margin-bottom:12px"><table class="rec">
-      <tr><th>編號</th><th>姓名</th><th>身分證</th><th>級</th><th>病歷號</th><th>狀態</th></tr>`+
-      pendRows+
-      regsAct.slice().reverse().map(({g,gi})=>{
-        const anon=!String(g.name||"").trim()||!g.hasId;
-        const bg=g.regDone?"":(anon?' style="background:#FFD6D6;cursor:pointer"':' style="background:#FFF3B0;cursor:pointer"');
-        const stTxt=g.regDone?"✅已建檔":(anon?'<b style="color:#B00">⚠ 無名氏/資料不全</b>':'<b style="color:#B8860B">待掛號建檔</b>');
-        return `<tr${bg} onclick="${isReg?`openRegCard(${gi})`:`startRegFor('${String(g.serial||"").replace(/'/g,"")}')`}"><td><b>${g.serial||"—"}</b></td><td>${g.name||"（無名）"}</td>
-          <td>${g.hasId?"✔有":"✘無"}</td><td>${lvBadge(g.tri)}</td><td>${g.chartNo||"—"}</td><td>${stTxt}</td></tr>`;
-      }).join("")+`</table></div>`;
-    const triHtml=`
-      <b>已檢傷病人列表（點列開始登打、完善資訊）</b>
-      <div style="overflow:auto"><table class="rec">
-      <tr><th>級</th><th>編號</th><th>時間</th><th>患者</th><th>判斷依據</th><th>登錄</th></tr>`+
-      listCache.triage.filter(r=>r.dispo!=="作廢").slice().reverse().map(r=>`<tr style="cursor:pointer" onclick="startRegFor('${String(r.mciNo||"").replace(/'/g,"")}')">
-        <td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.time}</td><td>${r.name||"未知"}</td>
-        <td>${String(r.criteria||"").substring(0,28)}</td><td>${r.registered?"✅":"<span style=color:#A33>未登錄</span>"}</td></tr>`).join("")+
-      `</table></div>`;
-    // 掛號：佇列為主；社工：登錄清單為主，佇列在後供補身分
-    body.innerHTML=isReg?(btnsHtml+queueHtml):(btnsHtml+triHtml+"<div style='height:10px'></div>"+queueHtml);
+      </div>
+      <b>傷患流程總表（檢傷 → 社工 → 掛號）</b>
+      <b style="color:#333">｜共 ${rows.length} 位：<span style="color:#1A56A8">待社工登錄 ${nS}</span>｜<span style="color:#B8860B">待建檔 ${nY}</span>｜<span style="color:#B00">無名氏 ${nR}</span>｜✅已建檔 ${nD}${nT?`｜待檢傷 ${nT}`:""}</b><br>
+      <span style="font-size:12px;color:#666">一位傷患一列，狀態隨流程推進：<span style="background:#D6E6FA;padding:0 6px">藍＝待社工登錄${isReg?"":"（點列登打）"}</span> →
+      <span style="background:#FFF3B0;padding:0 6px">黃＝待掛號建檔${isReg?"（點列開建檔卡）":""}</span> →
+      ✅＝已建檔；<span style="background:#FFD6D6;padding:0 6px">紅＝無名氏（優先查明身分）</span></span>
+      <div style="overflow:auto"><table class="rec flowT">
+      <tr><th>級</th><th>編號</th><th>檢傷時間</th><th>姓名</th><th>身分證</th><th>病歷號</th><th>狀態</th></tr>${rowHtml}</table></div>`;
     }else{ // 行政
     $("homeTitle").textContent="行政管理主畫面";
     const dispoOpts=(listCache.dispositions&&listCache.dispositions.length?listCache.dispositions:["","檢傷區","急救區","治療區","觀察區","送檢(檢查)","送OR(手術)","送病房(住院)","留觀","出院","轉院","死亡","其他"]);
@@ -1454,7 +1510,7 @@ function renderHome(){
     body.innerHTML=`
       <div style="margin-bottom:6px"><b>📁 事件：</b>${evSel}
         <button class="ghost" style="padding:2px 10px;margin-left:8px;border-color:#B0512B;color:#B0512B" onclick="setCurrentEvent()">⚑ 開設/切換目前事件</button>
-        <span id="ceLabel" style="font-size:13px;color:#B0512B;font-weight:bold;margin-left:6px">${listCache.currentEvent?"目前事件："+listCache.currentEvent:"（尚未設定目前事件）"}</span></div>
+        <span id="ceLabel" style="font-size:13px;font-weight:bold;margin-left:6px;color:${listCache.pinned?"#B00":"#1B7A2E"}">${listCache.pinned?"⚑ 釘選中："+listCache.currentEvent+"（存檔強制歸入此事件；結案請按⚑清空回到日期自動）":"目前事件（日期自動）："+(listCache.currentEvent||"—")}</span></div>
       <div style="margin-bottom:8px"><b>去向統計：</b>${Object.keys(dc).map(k=>k+" "+dc[k]).join("｜")||"—"}
         <button class="ghost" style="padding:2px 10px;margin-left:10px" onclick="opsAnalysis()">📊 營運分析</button>
         <button class="ghost" style="padding:2px 10px" onclick="sitrep()">📄 匯出摘要報告</button>
@@ -1469,9 +1525,11 @@ function renderHome(){
       <b>傷患登錄列表</b>
       <div style="overflow:auto"><table class="rec">
       <tr><th>編號</th><th>姓名</th><th>性別</th><th>級</th><th>傷情簡述</th><th>連繫</th><th>登錄人員</th><th>去向</th></tr>`+
-      listCache.register.slice().reverse().map(r=>`<tr><td><b>${r.serial||"—"}</b></td><td>${r.name}</td><td>${r.sex}</td>
-        <td>${lvBadge(r.tri)}</td><td>${String(r.injury||"").substring(0,26)}</td><td>${r.cDone?"✔":""}</td>
-        <td>${r.staff}</td><td>${sel(r.dispo||"","R",r.row)}</td></tr>`).join("")+
+      listCache.register.slice().reverse().map(r=>{
+        const jl=r.tri||((listCache.triage.find(t=>t.dispo!=="作廢"&&String(t.mciNo||"").trim()===String(r.serial||"").trim())||{}).level);
+        return `<tr><td><b>${r.serial||"—"}</b></td><td>${r.name}</td><td>${r.sex}</td>
+        <td>${lvBadge(jl)}</td><td>${String(r.injury||"").substring(0,26)}</td><td>${r.cDone?"✔":""}</td>
+        <td>${r.staff}</td><td>${sel(r.dispo||"","R",r.row)}</td></tr>`;}).join("")+
       `</table></div>`;
   }
 }
@@ -1987,6 +2045,7 @@ async function saveRecord(){
     if(dup&&!confirm(`⚠ 編號 ${mci} 已有檢傷紀錄（第 ${dup.level||"?"} 級）。\n\n確定要「再儲存一筆新的」嗎？\n（若是誤存重複，請按取消，改到名單點入該筆按「作廢」後重存）`))return;
   }
   saving=true;
+  let srvEv="";
   const r=buildRecord();
   records.push(r);
   // 文字紀錄
@@ -2031,7 +2090,7 @@ async function saveRecord(){
       try{const j=await res.clone().json(); if(j&&j.ok===false) okFlag=false;}catch(_){}
       st.textContent=okFlag?"✅ 已成功送出（Google 試算表／院內系統）":"⚠ 送出失敗（HTTP "+res.status+"），紀錄已保存於本機，可稍後匯出。";
       st.style.color=okFlag?"#1B7A2E":"#A33";
-      try{const jr=await res.clone().json();if(jr&&jr.row)_cacheRec.row=jr.row;}catch(_){}
+      try{const jr=await res.clone().json();if(jr&&jr.row)_cacheRec.row=jr.row;if(jr&&jr.ev)srvEv=jr.ev;}catch(_){}
     }catch(e){
       st.textContent="⚠ 無法連線至端點（"+e.message+"），紀錄已保存於本機，可由「紀錄/統計」匯出。";
       st.style.color="#A33";
@@ -2042,8 +2101,12 @@ async function saveRecord(){
   }
   saving=false;
   const okSent=/✅/.test(st.textContent);
-  showToast((okSent?"✅ 已存檔":"💾 已存本機")+`｜編號 ${r.mciNo||"—"}｜第 ${r.finalLevel||"—"} 級`, !okSent&&url);
-  $("lastSaved").textContent=`上一筆：${r.mciNo||"—"}｜${r.finalLevel||"—"}級｜${new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"})}`;
+  const evNote=srvEv?`｜📁${srvEv}`:"";
+  showToast((okSent?"✅ 已存檔":"💾 已存本機")+`｜編號 ${r.mciNo||"—"}｜第 ${r.finalLevel||"—"} 級`+evNote, !okSent&&url);
+  if(srvEv&&curEvent&&srvEv!==curEvent){
+    setTimeout(()=>showToast(`⚠ 本筆實際存入「${srvEv}」，與目前檢視「${curEvent}」不同（管理者釘選中，請洽行政確認）`,true),1600);
+  }
+  $("lastSaved").textContent=`上一筆：${r.mciNo||"—"}｜${r.finalLevel||"—"}級${evNote}｜${new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"})}`;
   $("saveDlg").showModal();
 }
 function copyRecord(btn){
@@ -2125,6 +2188,10 @@ $("memoBox").addEventListener("input",()=>{memoEdited=($("memoBox").value!==$("s
     if(ak)$("adminKey").value=ak;
     if(api){$("loginUrl").value=api;$("apiUrl").value=api;}
     if(key)$("apiKey").value=key;
+    // 立即預填今日事件，免等連線；伺服器回應後若有釘選會自動覆蓋
+    $("evCode").value=todayEv();
+    $("evCode").style.background="#E8F0E8";
+    $("evHint").textContent="已預設今日事件 "+todayEv()+"（連線後如管理者有釘選事件會自動更新）";
     if(h.get("api"))history.replaceState(null,"",location.pathname); // 不留在網址列
     if(api)loadStaff();  // 端點已就緒→自動載入人員名單
   }catch(e){}
