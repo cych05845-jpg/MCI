@@ -706,7 +706,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.17-18";
+const APP_VERSION = "v2026.09.17-19";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1570,13 +1570,18 @@ function startTriageFor(serial){
   $("mciNo").value=serial;
   lookupPatient(serial,"triage");
 }
+function regNameOf(serial){
+  const s=String(serial||"").trim();if(!s)return "";
+  const g=(listCache.register||[]).find(x=>x.dispo!=="作廢"&&String(x.serial||"").trim()===s&&String(x.name||"").trim());
+  return g?g.name:"";
+}
 function triTable(clickable){
   return `<div style="overflow:auto"><table class="rec">
     <tr><th>級</th><th>編號</th><th>病歷號</th><th>時間</th><th>患者</th><th>判斷依據</th><th>轉錄</th></tr>`+
     listCache.triage.map((r,idx)=>({r,idx})).filter(o=>o.r.dispo!=="作廢").reverse().map(({r,idx})=>
       `<tr ${clickable?`style="cursor:pointer" onclick="openTransfer(${idx})"`:""}>
         <td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.chartNo||"—"}</td>
-        <td>${r.time}</td><td>${r.name||"未知"}</td><td>${String(r.criteria||"").substring(0,30)}</td>
+        <td>${r.time}</td><td>${r.name||regNameOf(r.mciNo)||"未知"}</td><td>${String(r.criteria||"").substring(0,30)}</td>
         <td>${r.done?"✅":'<span style="color:#A33">—</span>'}</td></tr>`).join("")+`</table></div>`;
 }
 async function postVoid(sheet,row){
@@ -1610,7 +1615,7 @@ function renderTransfer(){
   if(!r)return;
   const remain=t.filter(x=>!x.done&&x.dispo!=="作廢").length;
   $("tfProg").textContent=`第 ${tfIdx+1}/${t.length} 位｜未轉錄 ${remain} 位`;
-  $("tfWho").textContent=`${r.mciNo||"—"}　${r.name||"未知"}　${r.time||""}`;
+  $("tfWho").textContent=`${r.mciNo||"—"}　${r.name||regNameOf(r.mciNo)||"未知"}　${r.time||""}`;
   $("tfDone").innerHTML=r.done?'<span style="color:#1B7A2E">✅ 已轉錄</span>':'<span style="color:#A33">未轉錄</span>';
   $("tfMci").value=r.mciNo||"";
   const ch=resolveChart(r);
