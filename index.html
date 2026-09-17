@@ -706,7 +706,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.17-20";
+const APP_VERSION = "v2026.09.17-22";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -2171,7 +2171,67 @@ async function openRecords(){
   const tb=$("recTable");
   tb.innerHTML="<tr><th>#</th><th>編號</th><th>時間</th><th>患者</th><th>級數</th><th>判斷依據</th><th>去向</th></tr>"+
     t.slice().reverse().map((r,i)=>`<tr><td>${i+1}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.time}</td><td>${r.name||""}</td><td>${r.level??""}</td><td>${String(r.criteria||"").substring(0,26)}</td><td>${r.dispo||""}</td></tr>`).join("");
+  if(!$("aiAnalyzeBar")){
+    const bar=document.createElement("div");
+    bar.id="aiAnalyzeBar";bar.style.margin="8px 0";
+    bar.innerHTML='<button class="ghost" style="border-color:#7B1FA2;color:#7B1FA2;font-weight:bold" onclick="analyzeSituation()">🧠 AI 分析重點</button> <button class="ghost" style="border-color:#1565C0;color:#1565C0;font-weight:bold" onclick="triageQuality()">📐 分級調整分析</button> <span id="aiAnalyzeStatus" style="font-size:12px;color:#666"></span><div id="aiAnalyzeOut" style="white-space:pre-wrap;background:#F6F0FA;border:1px solid #D9C2E8;border-radius:6px;padding:10px;margin-top:6px;display:none;font-size:14px;line-height:1.6"></div>';
+    $("recStats").after(bar);
+  }
   $("recDlg").showModal();
+}
+function triageQuality(){
+  const t=listCache.triage.filter(r=>r.dispo!=="作廢");
+  const out=$("aiAnalyzeOut"),st=$("aiAnalyzeStatus");
+  if(!t.length){showToast("尚無資料可分析",true);return;}
+  let up=[],down=[],same=0,noAuto=0;
+  t.forEach(r=>{
+    const a=parseInt(r.autoLv,10), f=parseInt(r.level,10);
+    if(!a||!f){noAuto++;return;}
+    if(f<a) up.push({no:r.mciNo,a,f,cr:r.criteria});      // 最終級數數字更小＝更緊急＝調升
+    else if(f>a) down.push({no:r.mciNo,a,f,cr:r.criteria});// 調降＝往較不緊急
+    else same++;
+  });
+  const n=up.length+down.length+same;
+  const line=arr=>arr.map(x=>`　・編號 ${x.no||"—"}：${x.a}→${x.f} 級（${String(x.cr||"").substring(0,20)}）`).join("\n");
+  const txt=[
+    `【分級調整分析｜事件 ${curEvent||"今日"}】`,
+    `可比對筆數：${n}（另有 ${noAuto} 筆無電腦綜合評級，多為快速模式）`,
+    ``,
+    `一致（未調整）：${same} 筆（${n?Math.round(100*same/n):0}%）`,
+    `⬆ 調升（往更緊急）：${up.length} 筆　← 符合「寧可 over」原則`,
+    up.length?line(up):"　（無）",
+    `⬇ 調降（往較不緊急）：${down.length} 筆　← 需重點檢視，避免 under-triage`,
+    down.length?line(down):"　（無）",
+    ``,
+    `※ 此處以「電腦綜合評級 vs 檢傷最終認定」比對，反映人為調整傾向。`,
+    `※ 真正的 over/under-triage 需於演練後，以病人最終確診結果回填比對。`,
+    `※ 教學用途，個案調整未必是錯——重點在調降個案的理由是否充分。`
+  ].join("\n");
+  out.textContent=txt;out.style.display="block";
+  st.textContent="✓ 分級調整分析（本機計算，未送雲端）";
+}
+async function analyzeSituation(){
+  const t=listCache.triage.filter(r=>r.dispo!=="作廢");
+  if(!t.length){showToast("尚無資料可分析",true);return;}
+  const url=$("apiUrl").value.trim();
+  const st=$("aiAnalyzeStatus"),out=$("aiAnalyzeOut");
+  if(!url){st.textContent="需設定 API 端點";return;}
+  const c={1:0,2:0,3:0,4:0,5:0},slot={},dc={};
+  t.forEach(r=>{if(c[r.level]!==undefined)c[r.level]++;
+    const m=String(r.time).match(/(\d{1,2}):(\d{2})/);if(m){const s=m[1].padStart(2,"0")+":"+(m[2]<30?"00":"30");slot[s]=(slot[s]||0)+1;}
+    const d=r.dispo||"未定";dc[d]=(dc[d]||0)+1;});
+  const g=listCache.register.filter(r=>r.dispo!=="作廢");
+  const payload=JSON.stringify({事件:curEvent||"今日",檢傷總數:t.length,級數分布:c,
+    每30分到量:slot,去向分布:dc,已登錄:g.length,未登錄:t.filter(r=>!r.registered).length,
+    家屬未連繫:g.filter(r=>!r.cDone).length});
+  st.textContent="🧠 分析中…";out.style.display="none";
+  try{
+    const res=await fetch(url,{method:"POST",body:JSON.stringify({mode:"analyze",payload,apiKey:$("apiKey").value||undefined})});
+    const j=await res.json();
+    if(!j.ok){st.textContent="分析失敗："+(j.error||"");return;}
+    out.textContent=j.text||"（無回應）";out.style.display="block";
+    st.textContent="✓ 僅供輔助參考，決策仍以現場指揮為準";
+  }catch(e){st.textContent="連線失敗："+e.message;}
 }
 function dl(name, content, type){
   const a=document.createElement("a");
