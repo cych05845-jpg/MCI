@@ -449,7 +449,7 @@ function list_(key, ev, adminkey, from, to) {
   if (to)   { const t2=new Date(to).getTime()+86400000; if(!isNaN(t2)) tT=t2; }
   const hasRange = !!(from||to);
   const timeOk = function(o){ const t=rowTs_(o.r);
-    if (ev) return t>=yr;                                   // 指定事件夾：一年內皆可見
+    if (ev) return true;                                    // 指定事件夾：以事件為界，直接全載該事件（量小、快）
     if (hasRange) return t>=Math.max(yr,fT) && t<=tT;       // 時間查詢：一年內區間
     return t>=act; };                                       // 預設：進行中窗口（近N天）
   const tv = tvAll.filter(function(o){ return evMatch(o.r[T('事件')]) && timeOk(o); });
@@ -466,7 +466,7 @@ function list_(key, ev, adminkey, from, to) {
     gcs:r[T('GCS')], spo2:r[T('SpO2')], hr:r[T('脈搏')], sbp:r[T('收縮壓')], dbp:r[T('舒張壓')],
     rr:r[T('呼吸')], bt:r[T('體溫')], mobility:r[T('活動狀態')], consciousness:r[T('意識(快速)')],
     dispo:r[T('去向')], registered:(!!regSerials[String(r[T('大量傷患編號')]).trim()] || !!regCharts[String(r[T('病歷號/流水號')]).trim()]),
-    done:!!r[T('已轉錄')], event:r[T('事件')]||'', autoLv:r[T('綜合評級')] }; }).slice(-300);
+    done:!!r[T('已轉錄')], event:r[T('事件')]||'', autoLv:r[T('綜合評級')] }; }).slice(-500);
   // 同一大量傷患編號：僅保留收件時間最新一筆（避免多筆登錄造成各畫面抓到不同版本）
   const regBest = {};
   rv.forEach(function(o){ const r=o.r;
@@ -479,7 +479,7 @@ function list_(key, ev, adminkey, from, to) {
     row:o.row, serial:r[R('大量傷患編號')], name:r[R('姓名')], sex:r[R('性別')],
     tri:r[R('檢傷級數')], injury:r[R('傷情簡述')], cDone:r[R('完成連繫')],
     staff:r[R('登錄人員')], dispo:r[R('去向')], chartNo:r[R('病歷號')], event:r[R('事件')]||'',
-    regDone:String(r[R('掛號建檔')]||''), hasId:!!String(r[R('身分證/護照')]||'').trim() }; }).slice(-300);
+    regDone:String(r[R('掛號建檔')]||''), hasId:!!String(r[R('身分證/護照')]||'').trim() }; }).slice(-500);
   return { ok:true, dispositions:DISPOSITIONS, events:Object.keys(evSet).sort(),
     pinned: !!PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT'),
     currentEvent: PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT') ||

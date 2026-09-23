@@ -318,7 +318,9 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
       </select>
     </div>
     <div class="row">
-      <button class="ghost" style="border-color:#1A73E8;color:#1A73E8" onclick="$('vitalPhoto').click()">📸 拍照讀值（監視器/血壓計）</button>
+      <button class="ghost" style="border-color:#1A73E8;color:#1A73E8" onclick="$('vitalPhotoCam').click()">📸 拍照讀值</button>
+      <button class="ghost" style="border-color:#1A73E8;color:#1A73E8" onclick="$('vitalPhoto').click()">🖼 選圖</button>
+      <input type="file" id="vitalPhotoCam" accept="image/*" capture="environment" style="display:none" onchange="vitalsFromPhoto(this)">
       <input type="file" id="vitalPhoto" accept="image/*" style="display:none" onchange="vitalsFromPhoto(this)">
       <span id="vitalOcrStatus" style="font-size:13px;color:#555"></span>
     </div>
@@ -342,7 +344,9 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
     <label style="font-weight:bold">摘要（可語音輸入）</label>
     <button class="micBtn" id="micBtn" onclick="toggleMic()">🎤 開始語音</button>
     <button class="micBtn" id="micBtnC" style="background:#1A73E8;border-color:#0B4DA0" onclick="toggleCloudMic('triage','micBtnC','micStatus')">☁️ 精準語音</button>
-    <button class="micBtn" id="micBtnDoc" style="background:#6A1B9A;border-color:#4A126B" onclick="$('docPhotoFile').click()">📄 文件拍照/選圖解析</button>
+    <button class="micBtn" id="micBtnDoc" style="background:#6A1B9A;border-color:#4A126B" onclick="$('docPhotoCam').click()">📄 文件拍照</button>
+    <button class="micBtn" id="micBtnDocPick" style="background:#8E44AD;border-color:#6A1B9A" onclick="$('docPhotoFile').click()">🖼 文件選圖</button>
+    <input type="file" id="docPhotoCam" accept="image/*" capture="environment" style="display:none" onchange="docFromPhoto(this)">
     <input type="file" id="docPhotoFile" accept="image/*" style="display:none" onchange="docFromPhoto(this)">
     <button class="ghost" style="border-color:#7B1FA2;color:#7B1FA2" onclick="polishSummary()">✨ 整理摘要</button>
     <button class="ghost" onclick="analyzeSummary()">分析並建議分類</button>
@@ -375,7 +379,9 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
       <button class="micBtn" id="micBtnR" onclick="toggleMic('rSum','micBtnR','micStatusR',extractReg)">🎤 開始語音</button>
       <button class="micBtn" id="micBtnRC" style="background:#1A73E8;border-color:#0B4DA0" onclick="toggleCloudMic('reg','micBtnRC','micStatusR')">☁️ 精準語音</button>
       <button class="ghost" onclick="extractReg()">擷取欄位</button>
-      <button class="micBtn" id="micBtnRDoc" style="background:#6A1B9A;border-color:#4A126B" onclick="$('regDocFile').click()">📄 文件拍照/選圖</button>
+      <button class="micBtn" id="micBtnRDoc" style="background:#6A1B9A;border-color:#4A126B" onclick="$('regDocCam').click()">📄 文件拍照</button>
+      <button class="micBtn" id="micBtnRDocPick" style="background:#8E44AD;border-color:#6A1B9A" onclick="$('regDocFile').click()">🖼 選圖</button>
+      <input type="file" id="regDocCam" accept="image/*" capture="environment" style="display:none" onchange="regDocFromPhoto(this)">
       <input type="file" id="regDocFile" accept="image/*" style="display:none" onchange="regDocFromPhoto(this)">
       <span id="micStatusR" style="font-size:12px;color:#666"></span>
     </div>
@@ -728,7 +734,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.23-8";
+const APP_VERSION = "v2026.09.23-12";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1183,6 +1189,77 @@ const TYPE_SYN=[
   [/截肢|斷指|斷肢|切斷/, "創傷性截肢"],
   [/燒|燙|灼/, "燒燙傷"]
 ];
+
+/* 內科/一般症狀 口語→主訴 同義詞（提升非外傷檢索命中率） */
+const SYMPTOM_SYN=[
+  [/喘|呼吸(困難|急促|短促|喘)|吸不到氣|上氣不接下氣|會喘/,"呼吸短促"],
+  [/沒(有)?呼吸|沒氣了|呼吸停/,"呼吸停止"],
+  [/一直咳|咳嗽|乾咳|咳不停/,"咳嗽"],
+  [/咳血|痰有血/,"咳血"],
+  [/換氣過度|過度換氣|喘到手麻/,"換氣過度"],
+  [/心跳停|沒有心跳|OHCA|到院前無心跳/,"心跳停止"],
+  [/胸痛|胸悶|胸口(痛|悶|緊)|心絞痛/,"胸痛/胸悶"],
+  [/心悸|心跳(快|亂|不規則)|覺得心臟亂跳/,"心悸/不規則心跳"],
+  [/血壓(很)?高|高血壓/,"高血壓急症"],
+  [/全身(無力|虛弱|軟)|沒力氣|虛弱/,"全身虛弱/無力"],
+  [/暈倒|昏倒|突然倒下|失去意識一下/,"暈厥"],
+  [/水腫|全身腫/,"全身性水腫"],
+  [/腳腫|手腳腫|肢體腫/,"肢體水腫"],
+  [/肚子痛|腹痛|上腹痛|下腹痛|胃痛/,"腹痛"],
+  [/沒食慾|吃不下|厭食/,"厭食"],
+  [/便秘|大不出來|好幾天沒大便/,"便秘"],
+  [/拉肚子|腹瀉|一直拉|水便|拉水便|軟便|一直跑廁所/,"腹瀉"],
+  [/(噁心|想吐|反胃|嘔吐|吐了|吐(了)?(好)?幾次)/,"噁心/嘔吐"],
+  [/吐血|嘔血/,"吐血"],
+  [/血便|黑便|大便有血|解黑便/,"血便/黑便"],
+  [/黃疸|皮膚(變)?黃|眼白黃/,"黃疸"],
+  [/肚子脹|腹脹|腹部腫/,"腹部腫塊/腹脹"],
+  [/(吞|吃)(下|了)?異物|誤吞/,"吞食異物"],
+  [/意識(不清|改變|變差|模糊)|叫不醒|反應變差/,"意識程度改變"],
+  [/混亂|胡言亂語|搞不清楚/,"混亂"],
+  [/頭暈|暈眩|眩暈|天旋地轉|暈|頭昏/,"眩暈/頭暈"],
+  [/頭痛|頭很痛|偏頭痛/,"頭痛"],
+  [/抽搐|癲癇|抽筋(到)?失去意識|全身抽/,"抽搐"],
+  [/走路不穩|步態不穩|走不穩|運動失調/,"步態不穩/運動失調"],
+  [/手抖|發抖|震顫/,"震顫"],
+  [/(單側|一邊|半邊)?(手腳|肢體|手|腳)(無力|沒力|舉不起來)|中風|臉歪|嘴歪|口齒不清|講話不清/,"中風症狀"],
+  [/背痛|腰背痛/,"背痛"],
+  [/手(痛|痠痛)|上肢(疼|痛)/,"上肢疼痛"],
+  [/腳(痛|痠痛)|下肢(疼|痛)|腿痛/,"下肢疼痛"],
+  [/關節(腫|痛|腫脹)/,"關節腫脹"],
+  [/腰痛|腰(酸|痠)痛|腎(區)?痛/,"腰痛"],
+  [/血尿|尿(有|帶)血|小便有血/,"血尿"],
+  [/解不出尿|尿不出來|尿滯留|排尿困難/,"尿滯留"],
+  [/頻尿|解尿(疼|痛)|小便(痛|灼熱)|泌尿道感染/,"泌尿道感染相關症狀(頻尿、解尿疼痛)"],
+  [/喉嚨痛|喉嚨(乾|癢|不舒服)/,"喉嚨痛"],
+  [/吞嚥困難|吞不下|吞東西痛/,"吞嚥困難"],
+  [/流鼻血|鼻子流血/,"流鼻血"],
+  [/鼻塞|流鼻水|感冒(症狀)?|上呼吸道感染/,"上呼吸道感染相關症狀(鼻塞、流鼻水、咳嗽、喉嚨痛)"],
+  [/耳朵痛|耳痛/,"耳朵疼痛"],
+  [/聽(力|不清)|重聽|聽力(改變|下降)/,"聽力改變"],
+  [/耳鳴/,"耳鳴"],
+  [/牙(齒|齦)(痛|問題|出血)/,"牙齒/牙齦問題"],
+  [/眼睛(紅|癢)|紅眼/,"眼睛紅/癢"],
+  [/眼睛痛|眼痛/,"眼睛疼痛"],
+  [/看不清楚|視力(模糊|下降|障礙)|視覺(障礙|模糊)/,"視覺障礙"],
+  [/紅疹|起疹子|疹子|皮膚起紅/,"紅疹"],
+  [/搔癢|全身癢|皮膚癢/,"搔癢"],
+  [/紅腫|局部(紅|腫)/,"局部紅腫"],
+  [/過敏(反應)?|蕁麻疹|全身起疹|過敏性/,"過敏反應"],
+  [/發燒|發熱|畏寒|發冷|體溫(高|升高)|燒到/,"發燒/畏寒"],
+  [/血糖(很)?高|高血糖/,"高血糖"],
+  [/血糖(很)?低|低血糖|冒冷汗發抖|手抖冒汗/,"低血糖"],
+  [/蒼白|貧血|臉色(很)?白/,"蒼白/貧血"],
+  [/自殺|想不開|憂鬱|情緒低落/,"憂鬱/自殺"],
+  [/焦慮|激動|坐立不安/,"焦慮/激動"],
+  [/幻覺|妄想|看到不存在/,"幻覺/妄想"],
+  [/失眠|睡不著/,"失眠"],
+  [/中毒|藥物中毒|農藥|一氧化碳|CO中毒/,"物質誤用/中毒"],
+  [/吃(太多)?藥|服藥過量|吞藥|藥物過量/,"藥物過量攝取"],
+  [/月經(問題|不規則|沒來)|經期(問題|異常)/,"月經問題"],
+  [/陰道出血|下體出血/,"陰道出血"],
+  [/懷孕|孕婦|妊娠/,"懷孕問題大於"],
+];
 function analyzeSummary(){
   const txt=$("sumText").value.trim();
   const box=$("sugList"); box.innerHTML="";
@@ -1206,6 +1283,8 @@ function analyzeSummary(){
       if(hit) s+=Math.max(1,Math.round(4*hit/bg.length));
     }
     if(txt.includes(p.name)) s+=4;
+    // 內科/一般症狀同義詞：口語命中該主訴給高分
+    SYMPTOM_SYN.forEach(([re,cplName])=>{ if(cplName===p.name && re.test(txt)) s+=6; });
     if(s>1) scored.push({s,c,p});
   }));
   scored.sort((a,b)=>b.s-a.s);
@@ -2374,8 +2453,16 @@ function buildRecord(){
 let saving=false;
 async function saveRecord(){
   if(saving)return;
-  // 重複儲存防呆：同一大量傷患編號已有紀錄時提醒
   const mci=$("mciNo").value.trim();
+  const chart=$("chartNo").value.trim();
+  // 孤兒防呆：編號與病歷號皆空 → 無法與社工/掛號融合，提醒補錨定鍵
+  if(!mci&&!chart){
+    if(!confirm("⚠ 此筆沒有大量傷患編號、也沒有病歷號。\n\n這樣無法與社工/掛號的資料串接（會變成孤兒資料，也會拖慢重整）。\n\n建議先掃/填「大量傷患編號」再儲存。\n\n仍要無編號儲存嗎？")){
+      showToast("請先掃或填入大量傷患編號",true);
+      return;
+    }
+  }
+  // 重複儲存防呆：同一大量傷患編號已有紀錄時提醒
   if(mci){
     const dup=listCache.triage.find(x=>String(x.mciNo||"").trim()===mci&&x.dispo!=="作廢");
     if(dup&&!confirm(`⚠ 編號 ${mci} 已有檢傷紀錄（第 ${dup.level||"?"} 級）。\n\n確定要「再儲存一筆新的」嗎？\n（若是誤存重複，請按取消，改到名單點入該筆按「作廢」後重存）`))return;
