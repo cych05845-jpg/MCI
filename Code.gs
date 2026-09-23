@@ -51,8 +51,39 @@ function doPost(e) {
       PropertiesService.getScriptProperties().setProperty('CURRENT_EVENT', String(d.value||'').trim());
       return json_({ ok:true, currentEvent: String(d.value||'').trim() });
     }
-    if (d.mode === 'register') {                       // 大量傷患資料表登錄
+    if (d.mode === 'register') {                       // 大量傷患資料表登錄（同編號同事件→更新既有列，不新增）
       const sh = sheet_(R_SHEET, R_HEADERS);
+      const Rh = function(h){ return R_HEADERS.indexOf(h); };
+      const ser = String(d.serial||'').trim();
+      const evv = String(d.event||'').trim();
+      let targetRow = 0;
+      if (ser) {
+        const last = sh.getLastRow();
+        if (last >= 2) {
+          const vals = sh.getRange(2, 1, last-1, R_HEADERS.length).getValues();
+          for (let i = vals.length-1; i >= 0; i--) {          // 由新到舊找同編號同事件
+            if (String(vals[i][Rh('大量傷患編號')]).trim() === ser &&
+                String(vals[i][Rh('事件')]||'').trim() === evv &&
+                String(vals[i][Rh('去向')]||'').trim() !== '作廢') { targetRow = i+2; break; }
+          }
+        }
+      }
+      if (targetRow) {
+        // 更新既有列：只覆蓋社工負責的欄位，保留掛號建檔、病歷號(若本次未帶)等他人欄位
+        const setIf = function(h, val, always){
+          const c = Rh(h)+1;
+          if (always || (val !== undefined && val !== null && String(val) !== '')) sh.getRange(targetRow, c).setValue(val);
+        };
+        setIf('姓名', d.name); setIf('性別', d.sex); setIf('生日', d.birth);
+        setIf('身分證/護照', d.natId); setIf('國籍', d.nation); setIf('地址/省市', d.addr);
+        setIf('家用電話', d.telHome); setIf('手機', d.telMobile);
+        setIf('緊急聯絡人', d.cName); setIf('關係', d.cRel); setIf('聯絡電話', d.cTel);
+        setIf('完成連繫', d.cDone?'V':'', true); setIf('家屬已到', d.cArr?'V':'', true);
+        setIf('傷情簡述', d.injury); setIf('口述摘要', d.summary); setIf('備註', d.memo);
+        setIf('登錄人員', d.staff, true);
+        if (String(d.chartNo||'').trim()) setIf('病歷號', d.chartNo);   // 有帶才覆蓋，不洗掉掛號填的
+        return json_({ ok:true, row: targetRow, ev: evv, updated:true });
+      }
       sh.appendRow([new Date(), d.serial||'', d.name||'', d.sex||'', d.birth||'',
         d.natId||'', d.nation||'', d.addr||'', d.telHome||'', d.telMobile||'',
         d.cName||'', d.cRel||'', d.cTel||'', d.cDone?'V':'', d.cArr?'V':'',
@@ -109,6 +140,38 @@ function doPost(e) {
       let tA=''; try{ tA=jA.candidates[0].content.parts[0].text; }catch(e){ return json_({ ok:false, error:'Gemini 未回傳文字' }); }
       return json_({ ok:true, text:tA });
     }
+    if (d.mode === 'chart_ocr') {                      // 條碼/病歷號圖片 → 數字
+      const GKc = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
+      if (!GKc) return json_({ ok:false, error:'請於指令碼屬性新增 GEMINI_API_KEY' });
+      const mdlc = PropertiesService.getScriptProperties().getProperty('GEMINI_MODEL') || 'gemini-3.6-flash';
+      const CP = '這是病人手圈、標籤或條碼的照片。請讀出上面的病歷號（通常為一串數字，可能 7-10 碼）與條碼下方數字。只輸出 JSON：{"chartNo":"病歷號數字或null","barcode":"條碼數字或null","others":"其他可見的重要數字/文字或null"}。只讀實際可見的，絕不推測。';
+      const payc = { contents:[{parts:[{inline_data:{mime_type:d.mime||'image/jpeg',data:d.image}},{text:CP}]}],
+        generationConfig:{response_mime_type:'application/json',temperature:0} };
+      const resc = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/'+mdlc+':generateContent?key='+GKc,
+        { method:'post', contentType:'application/json', payload:JSON.stringify(payc), muteHttpExceptions:true });
+      let jc; try{ jc=JSON.parse(resc.getContentText()); }catch(e){ return json_({ ok:false, error:'HTTP '+resc.getResponseCode() }); }
+      if (jc.error) return json_({ ok:false, error:'Gemini: '+jc.error.message });
+      let tc=''; try{ tc=jc.candidates[0].content.parts[0].text; }catch(e){ return json_({ ok:false, error:'Gemini 未回傳文字' }); }
+      tc = String(tc).replace(/^\s*```(?:json)?/i,'').replace(/```\s*$/,'').trim();
+      let oc; try{ oc=JSON.parse(tc); }catch(e){ oc={ }; }
+      return json_({ ok:true, result:oc });
+    }
+    if (d.mode === 'doc_ocr') {                        // 到院文件照片 → 摘要＋生命徵象＋基本資料
+      const GKd = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
+      if (!GKd) return json_({ ok:false, error:'請於指令碼屬性新增 GEMINI_API_KEY' });
+      const mdld = PropertiesService.getScriptProperties().getProperty('GEMINI_MODEL') || 'gemini-3.6-flash';
+      const DP = '這是傷病患隨身帶來的文件照片（如 OHCA 到院前紀錄、消防/EMT 救護紀錄、轉診單、他院病摘）。請擷取內容並輸出 JSON：{"note":"整理為台灣急診檢傷慣用醫學摘要(1-4句，含機轉/部位/傷型/症狀/時間/處置)","vitals":{"sbp":null,"dbp":null,"hr":null,"rr":null,"spo2":null,"bt":null,"gcs":null},"patient":{"name":"","sex":"男|女|","birth":"","natId":""}},"rawText":"文件可辨識全文"。嚴格限制：只擷取文件明確記載的資訊，絕不推測或杜撰；未記載的欄位給 null 或空字串；數值保留原始單位數字。';
+      const payd = { contents:[{parts:[{inline_data:{mime_type:d.mime||'image/jpeg',data:d.image}},{text:DP}]}],
+        generationConfig:{response_mime_type:'application/json',temperature:0} };
+      const resd = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/'+mdld+':generateContent?key='+GKd,
+        { method:'post', contentType:'application/json', payload:JSON.stringify(payd), muteHttpExceptions:true });
+      let jd; try{ jd=JSON.parse(resd.getContentText()); }catch(e){ return json_({ ok:false, error:'HTTP '+resd.getResponseCode() }); }
+      if (jd.error) return json_({ ok:false, error:'Gemini: '+jd.error.message });
+      let td=''; try{ td=jd.candidates[0].content.parts[0].text; }catch(e){ return json_({ ok:false, error:'Gemini 未回傳文字' }); }
+      td = String(td).replace(/^\s*```(?:json)?/i,'').replace(/```\s*$/,'').trim();
+      let od; try{ od=JSON.parse(td); }catch(e){ od={ note:td }; }
+      return json_({ ok:true, result:od });
+    }
     if (d.mode === 'vitals_ocr') {                     // 生命徵象照片讀值
       const GK = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
       if (!GK) return json_({ ok:false, error:'請於指令碼屬性新增 GEMINI_API_KEY' });
@@ -150,7 +213,8 @@ function doPost(e) {
     }
     if (d.mode === 'regmark') {                        // 掛號建檔完成確認
       const sh = sheet_(R_SHEET, R_HEADERS);
-      sh.getRange(Number(d.row), R_HEADERS.indexOf('掛號建檔') + 1).setValue(d.value ? 'V' : '');
+      var mk = d.value ? ('V ' + Utilities.formatDate(new Date(),'Asia/Taipei','HH:mm')) : '';
+      sh.getRange(Number(d.row), R_HEADERS.indexOf('掛號建檔') + 1).setValue(mk);
       return json_({ ok:true });
     }
     if (d.mode === 'regchart') {                       // 掛號回填病歷號（登錄表）
@@ -395,7 +459,7 @@ function list_(key, ev, adminkey, from, to) {
   const triage = tv.map(function(o){ const r=o.r; return {
     row:o.row, mciNo:r[T('大量傷患編號')], chartNo:r[T('病歷號/流水號')],
     time:fmtT_(r[T('抵達時間')]), name:r[T('患者')], sex:r[T('性別')], attr:r[T('屬性')],
-    level:r[T('最終級數')], criteria:r[T('判斷依據')], basis:r[T('依據全文')],
+    level:r[T('最終級數')], criteria:r[T('判斷依據')], basis:r[T('依據全文')], summary:r[T('摘要')],
     dispo:r[T('去向')], registered:!!regSerials[String(r[T('大量傷患編號')]).trim()],
     done:!!r[T('已轉錄')], event:r[T('事件')]||'', autoLv:r[T('綜合評級')] }; }).slice(-300);
   // 同一大量傷患編號：僅保留收件時間最新一筆（避免多筆登錄造成各畫面抓到不同版本）
@@ -410,7 +474,7 @@ function list_(key, ev, adminkey, from, to) {
     row:o.row, serial:r[R('大量傷患編號')], name:r[R('姓名')], sex:r[R('性別')],
     tri:r[R('檢傷級數')], injury:r[R('傷情簡述')], cDone:r[R('完成連繫')],
     staff:r[R('登錄人員')], dispo:r[R('去向')], chartNo:r[R('病歷號')], event:r[R('事件')]||'',
-    regDone:!!r[R('掛號建檔')], hasId:!!String(r[R('身分證/護照')]||'').trim() }; }).slice(-300);
+    regDone:String(r[R('掛號建檔')]||''), hasId:!!String(r[R('身分證/護照')]||'').trim() }; }).slice(-300);
   return { ok:true, dispositions:DISPOSITIONS, events:Object.keys(evSet).sort(),
     pinned: !!PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT'),
     currentEvent: PropertiesService.getScriptProperties().getProperty('CURRENT_EVENT') ||
