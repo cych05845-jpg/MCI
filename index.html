@@ -248,7 +248,8 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
     <label>抵達時間</label><input type="text" id="arrTime" class="w9">
     <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="setNow()">現在</button>
     <label style="color:#B0512B">病歷號</label><input type="text" id="chartNo" class="w9" style="border-color:#B0512B;font-weight:bold">
-    <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="startScan('chartNo')">📷掃描</button>
+    <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="startScan('chartNo')">📷掃</button>
+    <button class="ghost" style="padding:2px 8px;font-size:12px;border-color:#1A73E8;color:#1A73E8" onclick="chartPhoto('chartNo')">🔎讀號</button>
     <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="lookupPatient('','triage',$('chartNo').value)">查詢</button>
     <label>大量傷患編號</label><input type="text" id="mciNo" class="w6">
     <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="startScan('mciNo')">📷</button>
@@ -341,6 +342,8 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
     <label style="font-weight:bold">摘要（可語音輸入）</label>
     <button class="micBtn" id="micBtn" onclick="toggleMic()">🎤 開始語音</button>
     <button class="micBtn" id="micBtnC" style="background:#1A73E8;border-color:#0B4DA0" onclick="toggleCloudMic('triage','micBtnC','micStatus')">☁️ 精準語音</button>
+    <button class="micBtn" id="micBtnDoc" style="background:#6A1B9A;border-color:#4A126B" onclick="$('docPhotoFile').click()">📄 文件拍照解析</button>
+    <input type="file" id="docPhotoFile" accept="image/*" capture="environment" style="display:none" onchange="docFromPhoto(this)">
     <button class="ghost" style="border-color:#7B1FA2;color:#7B1FA2" onclick="polishSummary()">✨ 整理摘要</button>
     <button class="ghost" onclick="analyzeSummary()">分析並建議分類</button>
     <span id="micStatus" style="font-size:12px;color:#666"></span>
@@ -388,7 +391,8 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
   </div>
   <div class="row">
     <label>病歷號</label><input type="text" id="rChart" class="w6" placeholder="掛號建檔後填入">
-    <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="startScan('rChart')">📷</button>
+    <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="startScan('rChart')">📷掃</button>
+    <button class="ghost" style="padding:2px 8px;font-size:12px;border-color:#1A73E8;color:#1A73E8" onclick="chartPhoto('rChart')">🔎讀號</button>
     <label>身分證/護照</label><input type="text" id="rNatId" class="w9">
     <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="startScan('rNatId')">📷</button>
     <label>國籍</label><select id="rNation"><option>本國</option><option>中國</option><option>其它</option></select>
@@ -534,8 +538,17 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
 <dialog id="scanDlg">
   <div class="dhead"><span>條碼掃描</span><button class="ghost" style="padding:2px 10px" onclick="stopScan()">✕</button></div>
   <div class="dbody" style="text-align:center">
-    <video id="scanVideo" style="width:100%;max-width:420px;background:#000" playsinline></video>
-    <div id="scanMsg" style="font-size:13px;color:#555;margin-top:6px">對準條碼…（USB 條碼槍可直接對輸入欄刷讀，不需開此視窗）</div>
+    <div style="position:relative;display:inline-block;max-width:520px;width:100%">
+      <video id="scanVideo" style="width:100%;background:#000;border-radius:8px" playsinline muted></video>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:78%;height:34%;border:3px solid #22FF88;border-radius:8px;box-shadow:0 0 0 2000px rgba(0,0,0,.25);pointer-events:none"></div>
+    </div>
+    <div id="scanMsg" style="font-size:14px;color:#555;margin-top:8px">將條碼置於綠框內，距離約 15–25 公分，穩住待對焦</div>
+    <div style="margin-top:8px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+      <button class="ghost" id="torchBtn" style="display:none;border-color:#B8860B;color:#B8860B" onclick="toggleTorch()">🔦 補光</button>
+      <button class="ghost" id="zoomBtn" onclick="cycleZoom()">🔍 放大</button>
+      <button class="ghost" style="border-color:#1A73E8;color:#1A73E8" onclick="scanPhotoFallback()">📷 拍照讀號（AI）</button>
+    </div>
+    <div style="font-size:12px;color:#888;margin-top:4px">USB 條碼槍：直接對輸入欄刷讀即可，免開此視窗</div>
   </div>
 </dialog>
 
@@ -560,11 +573,17 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
       <input type="text" id="tfLv" class="w4" style="font-weight:bold;font-size:16px;text-align:center">
       <button class="ghost" onclick="copyVal('tfLv',this)">複製</button>
       <button class="ghost" style="font-size:12px" onclick="saveFieldBack('level','tfLv',this)">存回</button></div>
-    <div class="row" style="align-items:flex-start"><label style="min-width:5em;padding-top:6px">摘要/依據</label>
-      <textarea id="tfSum" rows="4" style="flex:1"></textarea>
+    <div class="row" style="align-items:flex-start"><label style="min-width:5em;padding-top:6px">判斷依據</label>
+      <textarea id="tfSum" rows="3" style="flex:1"></textarea>
       <div style="display:flex;flex-direction:column;gap:4px">
         <button class="ghost" onclick="copyVal('tfSum',this)">複製</button>
         <button class="ghost" style="font-size:12px" onclick="saveFieldBack('basis','tfSum',this)">存回</button>
+      </div></div>
+    <div class="row" style="align-items:flex-start"><label style="min-width:5em;padding-top:6px">摘要</label>
+      <textarea id="tfNote" rows="3" style="flex:1"></textarea>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button class="ghost" onclick="copyVal('tfNote',this)">複製</button>
+        <button class="ghost" style="font-size:12px" onclick="saveFieldBack('summary','tfNote',this)">存回</button>
       </div></div>
     <div class="row" style="justify-content:space-between;margin-top:6px">
       <span style="font-size:12px;color:#666">逐欄貼入正式檢傷（叫號綁定）；正式系統仍以現場確認為準。</span>
@@ -593,11 +612,12 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
     <div class="row" style="border-top:1px solid #DDD;padding-top:8px;margin-top:4px">
       <label style="min-width:5.5em;color:#B0512B">病歷號回填</label>
       <input id="rcChart" class="w9" placeholder="HIS建檔後貼回">
-      <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="startScan('rcChart')">📷</button>
+      <button class="ghost" style="padding:2px 8px;font-size:12px" onclick="startScan('rcChart')">📷掃</button>
+      <button class="ghost" style="padding:2px 8px;font-size:12px;border-color:#1A73E8;color:#1A73E8" onclick="chartPhoto('rcChart')">🔎讀號</button>
       <button class="ghost" onclick="saveRegChart(this)">存回</button>
     </div>
     <div class="row" style="justify-content:space-between;margin-top:8px">
-      <span style="font-size:12px;color:#666">欄位可直接修正（問到生日/看到證件）→ 💾存回 → 貼入院內掛號建檔 → 病歷號回填 → ✓完成熄燈</span>
+      <span style="font-size:12px;color:#666">貼入院內掛號建檔 → 病歷號回填按「存回」＝自動完成熄燈（社工同步看到）；若無病歷號可按右下「已建檔完成」</span>
       <button id="rcDoneBtn" style="background:#1B7A2E;border-color:#145C22;font-size:15px" onclick="confirmRegDone(this)">✓ 已建檔完成</button>
     </div>
   </div>
@@ -706,7 +726,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.17-25";
+const APP_VERSION = "v2026.09.18-7";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -968,6 +988,84 @@ async function toggleCloudMic(ctx,btnId,stId){
   st.textContent="☁ 錄音中…說完按停止即上傳辨識。";
 }
 
+/* ---------- 病歷號/條碼 圖片讀號 ---------- */
+let chartOcrTarget="";
+function chartPhoto(targetId){
+  chartOcrTarget=targetId;
+  let inp=$("chartOcrFile");
+  if(!inp){
+    inp=document.createElement("input");
+    inp.type="file";inp.accept="image/*";inp.capture="environment";inp.id="chartOcrFile";inp.style.display="none";
+    inp.onchange=()=>chartFromPhoto(inp);
+    document.body.appendChild(inp);
+  }
+  inp.value="";inp.click();
+}
+async function chartFromPhoto(inp){
+  const file=inp.files&&inp.files[0]; if(!file)return;
+  const url=$("apiUrl").value.trim();
+  if(!url){alert("讀號需設定 API 端點。");return;}
+  const tgt=chartOcrTarget;
+  showToast("🔎 讀取病歷號中…");
+  try{
+    const b64=await compressImg(file,2000);
+    const res=await fetch(url,{method:"POST",body:JSON.stringify({mode:"chart_ocr",image:b64,mime:"image/jpeg",apiKey:$("apiKey").value||undefined})});
+    const j=await res.json();
+    if(!j.ok){showToast("讀號失敗："+(j.error||""),true);return;}
+    const v=(j.result||{});
+    const num=v.chartNo||v.barcode||v.others||"";
+    if(num&&tgt==="__scanHome"){ showToast("✓ 讀到："+num); startRegFor(num); return; }
+    if(num&&$(tgt)){$(tgt).value=num;$(tgt).style.background="#C8E6C9";setTimeout(()=>$(tgt).style.background="",3000);
+      showToast("✓ 讀到："+num+"（請核對）");
+      if(tgt==="chartNo")lookupPatient("","triage",num);
+      else if(tgt==="mciNo")lookupPatient(num,"triage");
+      else if(tgt==="rSerial")lookupPatient(num,"reg");
+    }else showToast("未讀到清楚數字，請改用手動輸入",true);
+  }catch(e){showToast("讀號失敗："+e.message,true);}
+}
+function compressImg(file,max){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{const sc=Math.min(1,max/Math.max(img.width,img.height));
+      const cv=document.createElement("canvas");cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
+      cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+      resolve(cv.toDataURL("image/jpeg",0.85).split(",")[1]);};
+    img.onerror=()=>reject(new Error("圖片讀取失敗"));
+    img.src=URL.createObjectURL(file);
+  });
+}
+
+/* ---------- 到院文件照片 → 摘要/生命徵象/基本資料 ---------- */
+async function docFromPhoto(inp){
+  const file=inp.files&&inp.files[0]; inp.value="";
+  if(!file)return;
+  const url=$("apiUrl").value.trim();
+  if(!url){alert("文件解析需設定 API 端點。");return;}
+  $("micStatus").textContent="📄 解析文件中…";
+  try{
+    const b64=await compressImg(file,1600);
+    const res=await fetch(url,{method:"POST",body:JSON.stringify({mode:"doc_ocr",image:b64,mime:"image/jpeg",apiKey:$("apiKey").value||undefined})});
+    const j=await res.json();
+    if(!j.ok){$("micStatus").textContent="解析失敗："+(j.error||"");return;}
+    const o=j.result||{};
+    // 摘要
+    if(o.note){$("sumText").value=($("sumText").value?$("sumText").value+"\n":"")+o.note;syncMemo&&syncMemo();}
+    // 生命徵象
+    const vv=o.vitals||{};
+    const setV=(id,val)=>{if(val!=null&&val!==""&&!isNaN(val)&&$(id)&&!$(id).value){$(id).value=val;$(id).style.background="#C8E6C9";setTimeout(()=>$(id).style.background="",3000);}};
+    setV("sbp",vv.sbp);setV("dbp",vv.dbp);setV("hr",vv.hr);setV("rr",vv.rr);setV("spo2",vv.spo2);setV("bt",vv.bt);
+    if(vv.gcs&&$("gcsTotal")){/* 若有 GCS 欄位可填 */}
+    if($("vitalsBox"))$("vitalsBox").open=true;
+    // 基本資料（帶到檢傷患者欄，供辨識）
+    const p=o.patient||{};
+    if(p.name&&$("ptName")&&!$("ptName").value)$("ptName").value=p.name;
+    if(p.sex&&$("ptSex"))$("ptSex").value=p.sex;
+    compute();
+    $("micStatus").innerHTML='<b style="color:#B00">⚠ 已由文件擷取，請逐項核對原文</b>'+(o.rawText?'（已讀取文件全文）':'');
+    showToast("📄 文件解析完成，綠底為擷取欄位，請核對");
+  }catch(e){$("micStatus").textContent="解析失敗："+e.message;}
+}
+
 /* ---------- 生命徵象照片讀值 ---------- */
 async function vitalsFromPhoto(inp){
   const file=inp.files&&inp.files[0];
@@ -1216,6 +1314,7 @@ function doLogin(){
   applyRole();
   setMode("home");
   refreshList();
+  startPolling();
 }
 function updateEvChip(){
   const pin=listCache.pinned&&curEvent===listCache.currentEvent;
@@ -1261,6 +1360,17 @@ function pickEvent(name){
   }
 }
 function switchEvent(v){curEvent=v;updateEvChip();refreshList();}
+let pollTimer=null;
+function startPolling(){
+  if(pollTimer)clearInterval(pollTimer);
+  pollTimer=setInterval(()=>{
+    // 僅在主畫面、且無彈窗開啟時背景刷新
+    if(mode!=="home")return;
+    if(document.querySelector("dialog[open]"))return;
+    refreshList(true);
+  },12000);
+}
+function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null;}}
 function applyRole(){
   const regOnly=(userRole==="社工"||userRole==="掛號");
   $("tabGeneral").classList.toggle("hidden",regOnly);
@@ -1274,40 +1384,124 @@ function genSerial(){
 
 /* ---------- 條碼掃描 ---------- */
 let scanStream=null, scanTarget=null, scanTimer=null;
+let zxingReader=null, zxingLoading=null, scanTrack=null;
+function zxingObj(){ return window.ZXingBrowser || window.ZXing || null; }
+function loadScript(src){
+  return new Promise((resolve,reject)=>{
+    const s=document.createElement("script");
+    s.src=src;s.onload=()=>resolve();s.onerror=()=>reject(new Error("載入失敗："+src));
+    document.head.appendChild(s);
+  });
+}
+function loadZXing(){
+  if(zxingObj())return Promise.resolve();
+  if(zxingLoading)return zxingLoading;
+  // 官方 UMD：自帶依賴，全域名 ZXingBrowser；jsdelivr 為備援
+  zxingLoading=loadScript("https://unpkg.com/@zxing/browser@latest")
+    .catch(()=>loadScript("https://cdn.jsdelivr.net/npm/@zxing/browser@latest/umd/index.min.js"))
+    .then(()=>{ if(!zxingObj())throw new Error("條碼函式庫載入後找不到 ZXingBrowser"); });
+  return zxingLoading;
+}
+function onScanned(val){
+  const tid=scanTarget;
+  if(tid!=="__homeScan"&&$(tid))$(tid).value=val;
+  $("scanMsg").textContent="✓ 已讀取："+val;
+  setTimeout(()=>{stopScan();
+    if(tid==="mciNo")lookupPatient($("mciNo").value,"triage");
+    if(tid==="rSerial")lookupPatient($("rSerial").value,"reg");
+    if(tid==="rcChart")saveRegChart&&showToast("已讀入病歷號，請按存回");
+    if(tid==="__homeScan"){startRegFor(val);}
+    if(tid==="chartNo")lookupPatient("","triage",val);
+  },400);
+}
 async function startScan(targetId){
   scanTarget=targetId;
   if(targetId!=="__homeScan"&&!$(targetId)){alert("欄位不存在");return;}
-  if(!("BarcodeDetector" in window)){
-    alert("此瀏覽器不支援相機條碼掃描（請用 Chrome/Edge/Android）。\nUSB 條碼槍不受影響：點一下輸入欄後直接刷讀即可。");
-    return;
-  }
   try{
-    scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-  }catch(e){alert("無法開啟相機："+e.message);return;}
-  const v=$("scanVideo"); v.srcObject=scanStream; v.play();
+    scanStream=await navigator.mediaDevices.getUserMedia({video:{
+      facingMode:{ideal:"environment"},
+      width:{ideal:1920}, height:{ideal:1080},
+      focusMode:"continuous", advanced:[{focusMode:"continuous"}]
+    }});
+  }catch(e){
+    try{ scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}); }
+    catch(e2){ alert("無法開啟相機："+e2.message+"\n\n請確認：①用 Safari/Chrome 直接開（非 LINE 內）②網址是 https ③已允許相機權限。");return; }
+  }
+  const v=$("scanVideo"); v.srcObject=scanStream; v.setAttribute("playsinline","");
+  await v.play().catch(()=>{});
+  // 套用連續對焦（支援的裝置）＋記錄軌道供手電筒/變焦
+  scanTrack=scanStream.getVideoTracks()[0];
+  try{
+    const caps=scanTrack.getCapabilities?scanTrack.getCapabilities():{};
+    const adv=[];
+    if(caps.focusMode&&caps.focusMode.includes("continuous"))adv.push({focusMode:"continuous"});
+    if(caps.zoom&&caps.zoom.max>=2)adv.push({zoom:Math.min(2,caps.zoom.max)});
+    if(adv.length)await scanTrack.applyConstraints({advanced:adv});
+    $("torchBtn").style.display=(caps.torch)?"inline-block":"none";
+  }catch(_){}
   $("scanDlg").showModal();
-  const det=new BarcodeDetector({formats:["code_128","code_39","ean_13","qr_code","itf","codabar"]});
-  scanTimer=setInterval(async()=>{
+  $("scanMsg").textContent="啟動相機中…";
+  const FORMATS=["code_128","code_39","ean_13","ean_8","upc_a","qr_code","itf","codabar"];
+  // 路徑一：原生 BarcodeDetector（Android Chrome 最快）
+  if("BarcodeDetector" in window){
     try{
-      const codes=await det.detect(v);
-      if(codes.length){
-        if(scanTarget!=="__homeScan") $(scanTarget).value=codes[0].rawValue;
-        $("scanMsg").textContent="✓ 已讀取："+codes[0].rawValue;
-        const tid=scanTarget, val=codes[0].rawValue;
-        setTimeout(()=>{stopScan();
-          if(tid==="mciNo")lookupPatient($("mciNo").value,"triage");
-          if(tid==="rSerial")lookupPatient($("rSerial").value,"reg");
-          if(tid==="__homeScan"){startRegFor(val);}
-          if(tid==="chartNo")lookupPatient("", "triage", val);
-        },500);
-      }
-    }catch(e){}
-  },300);
+      const det=new BarcodeDetector({formats:FORMATS});
+      $("scanMsg").textContent="對準條碼…";
+      scanTimer=setInterval(async()=>{
+        try{const codes=await det.detect(v);if(codes.length){clearInterval(scanTimer);scanTimer=null;onScanned(codes[0].rawValue);}}catch(_){}
+      },250);
+      return;
+    }catch(e){/* 落到 ZXing */}
+  }
+  // 路徑二：ZXing（iPhone Safari 等通用）
+  try{
+    $("scanMsg").textContent="載入掃描元件…";
+    await loadZXing();
+    $("scanMsg").textContent="對準條碼…";
+    const ZB=zxingObj();
+    zxingReader=new ZB.BrowserMultiFormatReader();
+    zxingReader.decodeFromVideoElement(v,(result,err)=>{
+      if(result){const t=result.getText?result.getText():result.text;if(t){onScanned(t);}}
+    });
+  }catch(e){
+    $("scanMsg").innerHTML='<b style="color:#A33">相機掃描無法啟動：'+e.message+'</b><br>請改用下方「📷 拍照讀號」。';
+  }
+}
+async function scanPhotoFallback(){
+  // 用既有 chart_ocr 拍照辨識數字，填回 scanTarget
+  const tgt=scanTarget;
+  stopScan();
+  if(tgt==="__homeScan"){chartOcrTarget="__scanHome";}
+  chartPhotoTo(tgt);
+}
+function chartPhotoTo(targetId){
+  chartOcrTarget=targetId;
+  let inp=$("chartOcrFile");
+  if(!inp){inp=document.createElement("input");inp.type="file";inp.accept="image/*";inp.capture="environment";inp.id="chartOcrFile";inp.style.display="none";inp.onchange=()=>chartFromPhoto(inp);document.body.appendChild(inp);}
+  inp.value="";inp.click();
+}
+let torchOn=false, zoomLevel=1;
+async function toggleTorch(){
+  if(!scanTrack)return;
+  try{ torchOn=!torchOn; await scanTrack.applyConstraints({advanced:[{torch:torchOn}]});
+    $("torchBtn").style.background=torchOn?"#FFF3B0":""; }catch(e){showToast("此裝置不支援補光",true);}
+}
+async function cycleZoom(){
+  if(!scanTrack)return;
+  try{
+    const caps=scanTrack.getCapabilities?scanTrack.getCapabilities():{};
+    if(!caps.zoom){showToast("此裝置不支援變焦",true);return;}
+    zoomLevel=zoomLevel>=Math.min(4,caps.zoom.max)?1:zoomLevel+1;
+    const z=Math.min(caps.zoom.max,Math.max(caps.zoom.min||1,zoomLevel));
+    await scanTrack.applyConstraints({advanced:[{zoom:z}]});
+    $("zoomBtn").textContent="🔍 "+z+"×";
+  }catch(e){}
 }
 function stopScan(){
-  if(scanTimer)clearInterval(scanTimer);
-  if(scanStream)scanStream.getTracks().forEach(t=>t.stop());
-  scanStream=null;scanTimer=null;
+  torchOn=false;zoomLevel=1;scanTrack=null;
+  if(scanTimer){clearInterval(scanTimer);scanTimer=null;}
+  if(zxingReader){try{zxingReader.reset();}catch(_){}zxingReader=null;}
+  if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
   $("scanDlg").close();
 }
 
@@ -1395,10 +1589,10 @@ async function testEndpoint(btn){
 
 /* ---------- 主畫面：清單/統計/去向 ---------- */
 let listCache={triage:[],register:[],dispositions:[]};
-async function refreshList(){
+async function refreshList(silent){
   const url=$("apiUrl").value.trim();
   if(!url){$("homeStats").textContent="（未設定端點：僅顯示本機資料）";renderHome();return;}
-  $("homeStats").textContent="載入中…";
+  if(!silent)$("homeStats").textContent="載入中…";
   try{
     const res=await fetch(url+(url.includes("?")?"&":"?")+"action=list&key="+encodeURIComponent($("apiKey").value||"")+"&event="+encodeURIComponent(curEvent)+"&adminkey="+encodeURIComponent($("adminKey").value||""));
     const j=await res.json();
@@ -1471,8 +1665,11 @@ function renderHome(){
       let bg="",st="";
       if(!reg){nS++;bg="#D6E6FA";st='<b style="color:#1A56A8">⏳ 待社工登錄</b>';}
       else if(!String(name).trim()||!hasId){nR++;bg="#FFD6D6";st='<b style="color:#B00">⚠ 無名氏/資料不全</b>';}
-      else if(!reg.regDone){nY++;bg="#FFF3B0";st='<b style="color:#B8860B">待掛號建檔</b>';}
-      else{nD++;st="✅ 已建檔";}
+      else if(!reg.regDone){
+        nY++;bg="#FFF3B0";
+        st=(reg.chartNo)?'<b style="color:#E65100">⚠ 病歷號已填，待掛號按「完成」確認</b>':'<b style="color:#B8860B">待掛號建檔</b>';
+      }
+      else{nD++;st='✅ 已建檔'+(String(reg.regDone).length>1?' '+String(reg.regDone).replace(/^V\s*/,''):'');}
       if(reg&&!tri){nT++;st+=' <span style="color:#777">｜待檢傷</span>';}
       const sSafe=String(o.serial||"").replace(/'/g,"");
       const click=o.serial
@@ -1533,6 +1730,7 @@ function renderHome(){
   }
 }
 function logout(){
+  stopPolling();
   if(recOn&&recog)recog.stop();
   userRole="檢傷";$("staff").value="";$("whoami").textContent="";
   $("empId").value="";$("staffManual").value="";
@@ -1545,7 +1743,7 @@ function copyVal(id,btn){
   });
 }
 function copyAllTransfer(btn){
-  navigator.clipboard.writeText([$("tfChart").value,$("tfLv").value,$("tfSum").value].join("\t")).then(()=>{
+  navigator.clipboard.writeText([$("tfChart").value,$("tfLv").value,$("tfSum").value,$("tfNote").value].join("\t")).then(()=>{
     btn.textContent="已複製 ✓";setTimeout(()=>btn.textContent="複製全部（Tab分隔）",1500);
   });
 }
@@ -1626,6 +1824,7 @@ function renderTransfer(){
     : '<span style="color:#A33;font-weight:bold">⚠ 尚無病歷號</span> 可輸入後按「存回」，勿以大量傷患編號代替';
   $("tfLv").value=r.level||"";
   $("tfSum").value=(r.basis||r.criteria||"")||"";
+  $("tfNote").value=r.summary||"";
 }
 async function saveFieldBack(field,id,btn){
   const r=listCache.triage[tfIdx];
@@ -1758,7 +1957,7 @@ async function openRegCard(gi){
   if(!g)return;
   rcIdx=gi;
   $("rcWho").textContent=`編號 ${g.serial||"—"}　登錄：${g.staff||""}`;
-  $("rcStatus").innerHTML=g.regDone?'<span style="color:#1B7A2E">✅ 已建檔</span>':'<span style="color:#B8860B">待建檔</span>';
+  $("rcStatus").innerHTML=(g.regDone&&String(g.regDone).length)?'<span style="color:#1B7A2E">✅ 已建檔 '+String(g.regDone).replace(/^V\s*/,'')+'</span>':'<span style="color:#B8860B">待建檔</span>';
   $("rcName").value=g.name||"";$("rcSex").value=g.sex||"";
   $("rcNatId").value="";$("rcBirth").value="";$("rcTel").value="";
   $("rcChart").value=g.chartNo||"";
@@ -1809,8 +2008,8 @@ async function confirmRegDone(btn){
     const res=await fetch($("apiUrl").value.trim(),{method:"POST",body:JSON.stringify({mode:"regmark",row:g.row,value:"V",apiKey:$("apiKey").value||undefined})});
     const j=await res.json().catch(()=>({ok:res.ok}));
     if(j.ok===false||!res.ok)throw new Error(j.error||res.status);
-    g.regDone=true;
-    showToast("✅ 已標記建檔完成，警示已消除");
+    g.regDone=true;g.chartNo=$("rcChart").value.trim()||g.chartNo;
+    showToast("✅ 已建檔完成（社工端將同步顯示已建檔，可去拿手圈）");
     $("regCard").close();renderHome();
   }catch(e){showToast("標記失敗："+e.message,true);}
   btn.disabled=false;
@@ -1825,7 +2024,18 @@ async function saveRegChart(btn){
     const j=await res.json().catch(()=>({ok:res.ok}));
     if(j.ok===false||!res.ok)throw new Error(j.error||res.status);
     g.chartNo=v;btn.textContent="✓";
-    showToast("✅ 病歷號已回填（檢傷轉錄將自動帶入）");
+    // 病歷號回填＝實質建檔完成 → 自動標記完成、社工端同步熄燈
+    if(!g.regDone||!String(g.regDone).length){
+      try{
+        await fetch($("apiUrl").value.trim(),{method:"POST",body:JSON.stringify({mode:"regmark",row:g.row,value:"V",apiKey:$("apiKey").value||undefined})});
+        const now=new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"});
+        g.regDone="V "+now;
+        $("rcStatus").innerHTML='<span style="color:#1B7A2E">✅ 已建檔 '+now+'</span>';
+        showToast("✅ 病歷號已回填並自動標記建檔完成，社工端同步熄燈（可去拿手圈）");
+      }catch(_){ showToast("✅ 病歷號已回填（建檔標記待手動確認）"); }
+    }else{
+      showToast("✅ 病歷號已更新");
+    }
     renderHome();
   }catch(e){btn.textContent="失敗";showToast("回填失敗："+e.message,true);}
   setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},1500);
