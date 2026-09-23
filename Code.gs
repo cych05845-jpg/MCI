@@ -144,7 +144,7 @@ function doPost(e) {
       const GKc = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
       if (!GKc) return json_({ ok:false, error:'請於指令碼屬性新增 GEMINI_API_KEY' });
       const mdlc = PropertiesService.getScriptProperties().getProperty('GEMINI_MODEL') || 'gemini-3.6-flash';
-      const CP = '這是病人手圈、標籤或條碼的照片。請讀出上面的病歷號（通常為一串數字，可能 7-10 碼）與條碼下方數字。只輸出 JSON：{"chartNo":"病歷號數字或null","barcode":"條碼數字或null","others":"其他可見的重要數字/文字或null"}。只讀實際可見的，絕不推測。';
+      const CP = '這是台灣醫院大量傷患標籤/手圈照片。標籤格式常為「病歷號-檢查碼 大量NNN」，例如「1497834-0 大量023」代表病歷號1497834、大量傷患編號023。請讀出：病歷號（開頭那串數字，7-8碼，不含-後檢查碼）、大量傷患編號（「大量」後面的數字，如023）。只輸出 JSON：{"chartNo":"病歷號數字或null","mciNo":"大量傷患編號數字或null","barcode":"條碼下方完整數字或null"}。只讀實際可見的，絕不推測。';
       const payc = { contents:[{parts:[{inline_data:{mime_type:d.mime||'image/jpeg',data:d.image}},{text:CP}]}],
         generationConfig:{response_mime_type:'application/json',temperature:0} };
       const resc = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/'+mdlc+':generateContent?key='+GKc,
@@ -160,7 +160,7 @@ function doPost(e) {
       const GKd = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
       if (!GKd) return json_({ ok:false, error:'請於指令碼屬性新增 GEMINI_API_KEY' });
       const mdld = PropertiesService.getScriptProperties().getProperty('GEMINI_MODEL') || 'gemini-3.6-flash';
-      const DP = '這是傷病患隨身帶來的文件照片（如 OHCA 到院前紀錄、消防/EMT 救護紀錄、轉診單、他院病摘）。請擷取內容並輸出 JSON：{"note":"整理為台灣急診檢傷慣用醫學摘要(1-4句，含機轉/部位/傷型/症狀/時間/處置)","vitals":{"sbp":null,"dbp":null,"hr":null,"rr":null,"spo2":null,"bt":null,"gcs":null},"patient":{"name":"","sex":"男|女|","birth":"","natId":""}},"rawText":"文件可辨識全文"。嚴格限制：只擷取文件明確記載的資訊，絕不推測或杜撰；未記載的欄位給 null 或空字串；數值保留原始單位數字。';
+      const DP = '這是台灣急診檢傷/演習病歷卡或傷病患隨身文件照片（可能含姓名年齡性別、生日、身分證、住址、送達方式、主訴、理學檢查、生命徵象、GCS、毛細管回填、可否行走、慢性病史、過敏、血型、緊急聯絡人）。請完整擷取並輸出 JSON：{"note":"將主訴與理學檢查整理為台灣急診檢傷慣用醫學摘要(1-4句，含發病時間/症狀/次數/理學發現)","vitals":{"sbp":收縮壓數字或null,"dbp":舒張壓數字或null,"hr":null,"rr":null,"spo2":null,"bt":體溫數字或null,"gcs":GCS總分或null,"capRefill":毛細管回填秒數或null,"walk":"是|否|"},"patient":{"name":"","sex":"男|女|","age":年齡數字或null,"birth":"yyyy/mm/dd或民式","natId":"身分證/護照","addr":"住址","arrival":"送達方式"},"history":{"chronic":"慢性病史","allergy":"過敏(如NKDA)","bloodType":"血型"},"contact":{"name":"緊急聯絡人姓名","relation":"關係","phone":"電話"},"rawText":"文件可辨識全文"}。嚴格限制：只擷取文件明確記載的，絕不推測杜撰；未記載給null或空字串；數值只保留數字(如BP:114/72→sbp:114,dbp:72)。';
       const payd = { contents:[{parts:[{inline_data:{mime_type:d.mime||'image/jpeg',data:d.image}},{text:DP}]}],
         generationConfig:{response_mime_type:'application/json',temperature:0} };
       const resd = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/'+mdld+':generateContent?key='+GKd,
@@ -310,7 +310,7 @@ function lookup_(serial, key, chartNo, ev, adminkey) {
     var evR = String(rv[k][R('事件')]||'').trim();
     if (tOk(rv[k]) && (!ev || evR === ev) &&
         ((serial && String(rv[k][R('大量傷患編號')]).trim() === serial) ||
-        (chartNo && String(rv[k][R('身分證/護照')]).trim() === chartNo))) {
+        (chartNo && String(rv[k][R('病歷號')]).trim() === chartNo))) {
       const r = rv[k];
       register = { name:r[R('姓名')], sex:r[R('性別')], birth:fmtD_(r[R('生日')]),
         natId:r[R('身分證/護照')], telMobile:r[R('手機')], chartNo:r[R('病歷號')] };
@@ -454,13 +454,18 @@ function list_(key, ev, adminkey, from, to) {
     return t>=act; };                                       // 預設：進行中窗口（近N天）
   const tv = tvAll.filter(function(o){ return evMatch(o.r[T('事件')]) && timeOk(o); });
   const rv = rvAll.filter(function(o){ return evMatch(o.r[R('事件')]) && timeOk(o); });
-  const regSerials = {};
-  rv.forEach(function(o){ const s=String(o.r[R('大量傷患編號')]).trim(); if(s) regSerials[s]=true; });
+  const regSerials = {}, regCharts = {};
+  rv.forEach(function(o){
+    const s=String(o.r[R('大量傷患編號')]).trim(); if(s) regSerials[s]=true;
+    const c=String(o.r[R('病歷號')]).trim(); if(c) regCharts[c]=true;
+  });
   const triage = tv.map(function(o){ const r=o.r; return {
     row:o.row, mciNo:r[T('大量傷患編號')], chartNo:r[T('病歷號/流水號')],
     time:fmtT_(r[T('抵達時間')]), name:r[T('患者')], sex:r[T('性別')], attr:r[T('屬性')],
     level:r[T('最終級數')], criteria:r[T('判斷依據')], basis:r[T('依據全文')], summary:r[T('摘要')],
-    dispo:r[T('去向')], registered:!!regSerials[String(r[T('大量傷患編號')]).trim()],
+    gcs:r[T('GCS')], spo2:r[T('SpO2')], hr:r[T('脈搏')], sbp:r[T('收縮壓')], dbp:r[T('舒張壓')],
+    rr:r[T('呼吸')], bt:r[T('體溫')], mobility:r[T('活動狀態')], consciousness:r[T('意識(快速)')],
+    dispo:r[T('去向')], registered:(!!regSerials[String(r[T('大量傷患編號')]).trim()] || !!regCharts[String(r[T('病歷號/流水號')]).trim()]),
     done:!!r[T('已轉錄')], event:r[T('事件')]||'', autoLv:r[T('綜合評級')] }; }).slice(-300);
   // 同一大量傷患編號：僅保留收件時間最新一筆（避免多筆登錄造成各畫面抓到不同版本）
   const regBest = {};

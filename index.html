@@ -375,6 +375,8 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
       <button class="micBtn" id="micBtnR" onclick="toggleMic('rSum','micBtnR','micStatusR',extractReg)">🎤 開始語音</button>
       <button class="micBtn" id="micBtnRC" style="background:#1A73E8;border-color:#0B4DA0" onclick="toggleCloudMic('reg','micBtnRC','micStatusR')">☁️ 精準語音</button>
       <button class="ghost" onclick="extractReg()">擷取欄位</button>
+      <button class="micBtn" id="micBtnRDoc" style="background:#6A1B9A;border-color:#4A126B" onclick="$('regDocFile').click()">📄 文件拍照/選圖</button>
+      <input type="file" id="regDocFile" accept="image/*" style="display:none" onchange="regDocFromPhoto(this)">
       <span id="micStatusR" style="font-size:12px;color:#666"></span>
     </div>
     <textarea id="rSum" rows="2" placeholder="例：他叫林大明，男生，民國65年3月2日生，身分證A123456789，手機0912345678，太太王小美是緊急聯絡人，電話0987654321，已經聯絡上了…"></textarea>
@@ -726,7 +728,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.23-4";
+const APP_VERSION = "v2026.09.23-8";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1081,8 +1083,10 @@ async function docFromPhoto(inp){
     if(o.contact&&o.contact.name)extra.push("緊急聯絡:"+o.contact.name+(o.contact.relation?"("+o.contact.relation+")":"")+(o.contact.phone?" "+o.contact.phone:""));
     if(extra.length&&$("memoBox")){memoEdited=true;$("memoBox").value=($("memoBox").value?$("memoBox").value+"　":"")+extra.join("；");$("memoBox").style.background="#C8E6C9";setTimeout(()=>$("memoBox").style.background="",3000);}
     compute();
-    $("micStatus").innerHTML='<b style="color:#B00">⚠ 已由文件擷取，請逐項核對原文</b>'+(o.rawText?'（已讀取文件全文）':'');
-    showToast("📄 文件解析完成：摘要/生命徵象/基本資料已帶入，綠底請核對");
+    // 文件摘要已入 sumText → 自動分析建議分類（與語音辨識後行為一致）
+    if(o.note && typeof analyzeSummary==="function"){ try{ analyzeSummary(); }catch(_){} }
+    $("micStatus").innerHTML='<b style="color:#B00">⚠ 已由文件擷取，請逐項核對原文</b>'+(o.rawText?'（已讀取文件全文，已依摘要建議分類）':'（已依摘要建議分類）');
+    showToast("📄 文件解析完成：摘要/生命徵象已帶入並建議分類，綠底請核對");
     window._lastDocOcr=o;  // 供社工端登錄取用完整基本資料
   }catch(e){$("micStatus").textContent="解析失敗："+e.message;}
 }
@@ -1527,6 +1531,34 @@ function stopScan(){
   $("scanDlg").close();
 }
 
+/* ---------- 社工：文件拍照/選圖 → 填登錄表 ---------- */
+async function regDocFromPhoto(inp){
+  const file=inp.files&&inp.files[0]; inp.value="";
+  if(!file)return;
+  const url=$("apiUrl").value.trim();
+  if(!url){alert("文件解析需設定 API 端點。");return;}
+  $("micStatusR").textContent="📄 解析文件中…";
+  try{
+    const b64=await compressImg(file,1600);
+    const res=await fetch(url,{method:"POST",body:JSON.stringify({mode:"doc_ocr",image:b64,mime:"image/jpeg",apiKey:$("apiKey").value||undefined})});
+    const j=await res.json();
+    if(!j.ok){$("micStatusR").textContent="解析失敗："+(j.error||"");return;}
+    const o=j.result||{};
+    const p=o.patient||{}, c=o.contact||{};
+    const setT=(id,val)=>{if(val&&$(id)&&!$(id).value){$(id).value=val;$(id).style.background="#C8E6C9";setTimeout(()=>$(id).style.background="",3000);}};
+    setT("rName",p.name);
+    if(p.sex&&$("rSex"))$("rSex").value=p.sex;
+    setT("rBirth",p.birth); setT("rNatId",(p.natId||"").toUpperCase()); setT("rAddr",p.addr);
+    setT("rCName",c.name); setT("rCRel",c.relation); setT("rCTel",c.phone);
+    // 手機：doc_ocr 沒獨立手機欄，若聯絡電話像本人手機可留給人工；此處不強填 rTelM
+    // 原始摘要放入口述摘要區備查
+    if(o.rawText){$("rSum").value=($("rSum").value?$("rSum").value+"\n":"")+o.rawText;}
+    else if(o.note){$("rSum").value=($("rSum").value?$("rSum").value+"\n":"")+o.note;}
+    $("micStatusR").innerHTML='<b style="color:#B00">⚠ 已由文件擷取，請逐項核對原文</b>';
+    showToast("📄 文件解析完成：姓名/生日/身分證/住址/聯絡人已帶入，綠底請核對");
+  }catch(e){$("micStatusR").textContent="解析失敗："+e.message;}
+}
+
 /* ---------- 口述摘要 → 欄位擷取 ---------- */
 function fillIf(id,val){
   if(val==null||val==="")return;
@@ -1664,17 +1696,32 @@ function renderHome(){
     const isReg=(userRole==="掛號");
     $("homeTitle").textContent=isReg?"掛號建檔主畫面":"傷患登錄主畫面";
     // ---- 一人一列：以（事件內）大量傷患編號合併檢傷與登錄，同編號取最新登錄 ----
+    // 融合鍵：大量傷患編號優先，無編號則用病歷號備援（病人手圈有病歷號、編號可能分離）
     const map=new Map(), noKey=[];
+    const keyOf=(mci,chart)=>{ mci=String(mci||"").trim(); chart=String(chart||"").trim();
+      return mci?("S:"+mci):(chart?("C:"+chart):""); };
+    // 建病歷號→編號索引，讓「檢傷有編號、社工只填病歷號」也能併起來
+    const chartToSerial={};
+    listCache.triage.concat(listCache.register.map(r=>({mciNo:r.serial,chartNo:r.chartNo,dispo:r.dispo})))
+      .forEach(r=>{ if(r.dispo==="作廢")return; const m=String(r.mciNo||"").trim(),c=String(r.chartNo||"").trim();
+        if(m&&c&&!chartToSerial[c])chartToSerial[c]=m; });
+    const resolveKey=(mci,chart)=>{ mci=String(mci||"").trim(); chart=String(chart||"").trim();
+      if(!mci&&chart&&chartToSerial[chart])mci=chartToSerial[chart];  // 病歷號能對到編號就用編號
+      return keyOf(mci,chart); };
     listCache.triage.filter(r=>r.dispo!=="作廢").forEach(r=>{
-      const s=String(r.mciNo||"").trim();
-      if(!s){noKey.push({tri:r});return;}
-      const o=map.get(s)||{serial:s};o.tri=r;map.set(s,o);
+      const k=resolveKey(r.mciNo,r.chartNo);
+      if(!k){noKey.push({tri:r});return;}
+      const o=map.get(k)||{serial:String(r.mciNo||"").trim(),chartNo:String(r.chartNo||"").trim()};
+      o.tri=r; if(!o.serial&&r.mciNo)o.serial=String(r.mciNo).trim(); if(!o.chartNo&&r.chartNo)o.chartNo=String(r.chartNo).trim();
+      map.set(k,o);
     });
     listCache.register.forEach((r,gi)=>{
       if(r.dispo==="作廢")return;
-      const s=String(r.serial||"").trim();
-      if(!s){noKey.push({reg:r,gi});return;}
-      const o=map.get(s)||{serial:s};o.reg=r;o.gi=gi;map.set(s,o);
+      const k=resolveKey(r.serial,r.chartNo);
+      if(!k){noKey.push({reg:r,gi});return;}
+      const o=map.get(k)||{serial:String(r.serial||"").trim(),chartNo:String(r.chartNo||"").trim()};
+      o.reg=r;o.gi=gi; if(!o.serial&&r.serial)o.serial=String(r.serial).trim(); if(!o.chartNo&&r.chartNo)o.chartNo=String(r.chartNo).trim();
+      map.set(k,o);
     });
     const rows=[...map.values()].concat(noKey);
     let nS=0,nY=0,nR=0,nD=0,nT=0;
@@ -1795,13 +1842,27 @@ function regNameOf(serial){
   const g=(listCache.register||[]).find(x=>x.dispo!=="作廢"&&String(x.serial||"").trim()===s&&String(x.name||"").trim());
   return g?g.name:"";
 }
+function vitalsBrief(r){
+  const p=[];
+  if(r.consciousness)p.push(String(r.consciousness).replace(/^\d+\s*/,""));
+  if(r.gcs)p.push("GCS"+r.gcs);
+  if(r.sbp||r.dbp)p.push("BP"+(r.sbp||"?")+"/"+(r.dbp||"?"));
+  if(r.hr)p.push("HR"+r.hr);
+  if(r.rr)p.push("RR"+r.rr);
+  if(r.spo2)p.push("SpO2 "+r.spo2+"%");
+  if(r.bt)p.push(r.bt+"°");
+  return p.join(" ")||"—";
+}
+function mobilityBrief(r){ return r.mobility?String(r.mobility):"—"; }
 function triTable(clickable){
   return `<div style="overflow:auto"><table class="rec">
-    <tr><th>級</th><th>編號</th><th>病歷號</th><th>時間</th><th>患者</th><th>判斷依據</th><th>轉錄</th></tr>`+
+    <tr><th>級</th><th>編號</th><th>病歷號</th><th>時間</th><th>患者</th><th>生命徵象</th><th>活動</th><th>判斷依據</th><th>轉錄</th></tr>`+
     listCache.triage.map((r,idx)=>({r,idx})).filter(o=>o.r.dispo!=="作廢").reverse().map(({r,idx})=>
       `<tr ${clickable?`style="cursor:pointer" onclick="openTransfer(${idx})"`:""}>
         <td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.chartNo||"—"}</td>
-        <td>${r.time}</td><td>${r.name||regNameOf(r.mciNo)||"未知"}</td><td>${String(r.criteria||"").substring(0,30)}</td>
+        <td>${r.time}</td><td>${r.name||regNameOf(r.mciNo)||"未知"}</td>
+        <td style="font-size:12px">${vitalsBrief(r)}</td><td style="font-size:12px">${mobilityBrief(r)}</td>
+        <td>${String(r.criteria||"").substring(0,30)}</td>
         <td>${r.done?"✅":'<span style="color:#A33">—</span>'}</td></tr>`).join("")+`</table></div>`;
 }
 async function postVoid(sheet,row){
