@@ -371,7 +371,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
 <!-- ============ 傷患登錄模式（大量傷患資料表） ============ -->
 <div class="voiceBox hidden" id="regPane">
   <div class="row" style="margin-bottom:2px"><b style="font-size:15px">大量傷患資料表</b>
-    <span style="font-size:12px;color:#666">基本資料（掛號、EOC、電子白板）｜填妥後「加入清單」，可累積多筆一併傳送。</span></div>
+    <span style="font-size:12px;color:#666">填一部分即可按「💾 即時存檔」讓掛號先看到；或「加入清單」累積多筆一併傳送。同編號會自動併入同列。</span></div>
 
   <div style="border:1px dashed #999;background:#FDFDF5;padding:6px 8px;margin:4px 0 8px">
     <div class="row" style="margin-bottom:2px">
@@ -428,6 +428,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
   <div class="row">
     <label>備註</label><input type="text" id="rMemo" style="flex:1;min-width:200px" placeholder="特徵/衣著/隨身物等辨識資訊">
     <button onclick="addReg()">加入清單</button>
+    <button style="background:#1B7A2E;border-color:#145C22" onclick="saveRegNow(this)">💾 即時存檔（掛號可先看）</button>
   </div>
   <div style="margin-top:8px;overflow:auto"><table class="rec" id="regTable"></table></div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:6px">
@@ -734,7 +735,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.23-12";
+const APP_VERSION = "v2026.09.23-15";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1820,11 +1821,12 @@ function renderHome(){
       else{nD++;st='✅ 已建檔'+(String(reg.regDone).length>1?' '+String(reg.regDone).replace(/^V\s*/,''):'');}
       if(reg&&!tri){nT++;st+=' <span style="color:#777">｜待檢傷</span>';}
       const sSafe=String(o.serial||"").replace(/'/g,"");
-      const click=o.serial
+      const chartSafe=String(o.chartNo||"").replace(/'/g,"");
+      const click=(o.serial||o.chartNo)
         ?(isReg
-          ?(reg?`openRegCard(${o.gi})`:`showToast('編號 ${sSafe}：尚未由社工登錄，暫無法建檔',true)`)
-          :`startRegFor('${sSafe}')`)
-        :`showToast('此筆缺大量傷患編號，無法串接流程（請於原紀錄補編號）',true)`;
+          ?(reg?`openRegCard(${o.gi})`:`openRegCardBySerial('${sSafe}','${chartSafe}')`)
+          :`startRegFor('${sSafe||chartSafe}')`)
+        :`showToast('此筆缺大量傷患編號與病歷號，無法串接流程',true)`;
       return `<tr style="cursor:pointer;${bg?`background:${bg}`:""}" onclick="${click}">
         <td>${lvBadge(lv)}</td><td><b>${o.serial||"—"}</b></td>
         <td>${(tri&&tri.time)||"（先行登錄）"}</td>
@@ -2116,34 +2118,54 @@ function sitrep(){
 let rcIdx=-1;
 async function openRegCard(gi){
   const g=listCache.register[gi];
-  if(!g)return;
+  if(!g){showToast("找不到該筆登錄資料，請重新整理",true);return;}
   rcIdx=gi;
   $("rcWho").textContent=`編號 ${g.serial||"—"}　登錄：${g.staff||""}`;
   $("rcStatus").innerHTML=(g.regDone&&String(g.regDone).length)?'<span style="color:#1B7A2E">✅ 已建檔 '+String(g.regDone).replace(/^V\s*/,'')+'</span>':'<span style="color:#B8860B">待建檔</span>';
+  // 先用清單快取墊底（查詢失敗也不會空白）
   $("rcName").value=g.name||"";$("rcSex").value=g.sex||"";
-  $("rcNatId").value="";$("rcBirth").value="";$("rcTel").value="";
+  $("rcNatId").value=g.natId||"";$("rcBirth").value=g.birth||"";$("rcTel").value=g.telMobile||"";
   $("rcChart").value=g.chartNo||"";
   $("regCard").showModal();
-  // 完整資料由編號查詢帶入
+  // 再用編號或病歷號查詢補齊完整欄位
   const url=$("apiUrl").value.trim();
-  if(url&&g.serial){
+  const keySerial=g.serial||"", keyChart=g.chartNo||"";
+  if(url&&(keySerial||keyChart)){
     try{
-      const q=url+(url.includes("?")?"&":"?")+"action=lookup&serial="+encodeURIComponent(g.serial)+
-        "&chartNo=&event="+encodeURIComponent(curEvent)+
+      const q=url+(url.includes("?")?"&":"?")+"action=lookup&serial="+encodeURIComponent(keySerial)+
+        "&chartNo="+encodeURIComponent(keyChart)+"&event="+encodeURIComponent(curEvent)+
         "&adminkey="+encodeURIComponent($("adminKey").value||"")+
         "&key="+encodeURIComponent($("apiKey").value||"");
       const j=await (await fetch(q)).json();
-      const r=j.register||{};
+      const r=(j&&j.register)||{};
+      if(r.name&&!$("rcName").value)$("rcName").value=r.name;
+      if(r.sex&&!$("rcSex").value)$("rcSex").value=r.sex;
       if(r.natId)$("rcNatId").value=r.natId;
       if(r.birth)$("rcBirth").value=r.birth;
       if(r.telMobile)$("rcTel").value=r.telMobile;
       if(r.chartNo&&!$("rcChart").value)$("rcChart").value=r.chartNo;
-    }catch(e){}
+    }catch(e){ showToast("完整資料查詢失敗，顯示的是清單快取（可手動補）",true); }
   }
 }
+async function openRegCardBySerial(serial,chart){
+  serial=String(serial||"").trim(); chart=String(chart||"").trim();
+  // 從檢傷資料找對應（姓名可能是文件解析帶入的）
+  const tri=listCache.triage.find(t=>t.dispo!=="作廢"&&(
+    (serial&&String(t.mciNo||"").trim()===serial)||(chart&&String(t.chartNo||"").trim()===chart)));
+  rcIdx=-1;  // 尚無 register 列
+  window._rcNewSerial=serial; window._rcNewChart=chart;
+  $("rcWho").textContent=`編號 ${serial||"—"}　（社工尚未登錄，掛號可先建檔）`;
+  $("rcStatus").innerHTML='<span style="color:#B8860B">待建檔（先行）</span>';
+  $("rcName").value=(tri&&tri.name)||"";$("rcSex").value=(tri&&tri.sex)||"";
+  $("rcNatId").value="";$("rcBirth").value="";$("rcTel").value="";
+  $("rcChart").value=chart||(tri&&tri.chartNo)||"";
+  $("regCard").showModal();
+  showToast("社工尚未登錄，可先建檔並回填病歷號；社工之後補資料會自動併入同編號");
+}
 async function saveRegEdit(btn){
-  const g=listCache.register[rcIdx];
-  if(!g||!g.row){showToast("此筆尚未上傳，無法存回",true);return;}
+  let g;
+  try{ g=await ensureRegRow(); }catch(e){showToast("建立登錄列失敗："+e.message,true);return;}
+  if(!g||!g.row){showToast("無法建立登錄列",true);return;}
   const orig=btn.textContent;btn.disabled=true;btn.textContent="…";
   try{
     const res=await fetch($("apiUrl").value.trim(),{method:"POST",body:JSON.stringify({
@@ -2163,7 +2185,8 @@ async function saveRegEdit(btn){
   setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},1500);
 }
 async function confirmRegDone(btn){
-  const g=listCache.register[rcIdx];
+  let g;
+  try{ g=await ensureRegRow(); }catch(e){showToast("建立登錄列失敗："+e.message,true);return;}
   if(!g||!g.row)return;
   btn.disabled=true;
   try{
@@ -2176,10 +2199,30 @@ async function confirmRegDone(btn){
   }catch(e){showToast("標記失敗："+e.message,true);}
   btn.disabled=false;
 }
+async function ensureRegRow(){
+  // 先行建檔情境：尚無 register 列 → 用當前卡片資料建立一列，回傳該列物件
+  if(rcIdx>=0 && listCache.register[rcIdx]) return listCache.register[rcIdx];
+  const url=$("apiUrl").value.trim();
+  const rec={mode:"register",serial:window._rcNewSerial||"",chartNo:$("rcChart").value.trim(),
+    name:$("rcName").value.trim(),sex:$("rcSex").value,birth:$("rcBirth").value.trim(),
+    natId:$("rcNatId").value.trim(),telMobile:$("rcTel").value.trim(),
+    staff:$("staff").value,event:curEvent,apiKey:$("apiKey").value||undefined};
+  const res=await fetch(url,{method:"POST",body:JSON.stringify(rec)});
+  const j=await res.json().catch(()=>({ok:res.ok}));
+  if(j.ok===false||!res.ok)throw new Error(j.error||res.status);
+  const g={row:j.row,serial:rec.serial,chartNo:rec.chartNo,name:rec.name,sex:rec.sex,
+    birth:rec.birth,natId:rec.natId,telMobile:rec.telMobile,staff:rec.staff,
+    event:curEvent,dispo:"",regDone:"",hasId:!!rec.natId};
+  listCache.register.push(g);
+  rcIdx=listCache.register.length-1;
+  return g;
+}
 async function saveRegChart(btn){
-  const g=listCache.register[rcIdx];
   const v=$("rcChart").value.trim();
-  if(!g||!g.row||!v)return;
+  if(!v){showToast("請先填入病歷號",true);return;}
+  let g;
+  try{ g=await ensureRegRow(); }catch(e){showToast("建立登錄列失敗："+e.message,true);return;}
+  if(!g||!g.row)return;
   const orig=btn.textContent;btn.disabled=true;btn.textContent="…";
   try{
     const res=await fetch($("apiUrl").value.trim(),{method:"POST",body:JSON.stringify({mode:"regchart",row:g.row,value:v,apiKey:$("apiKey").value||undefined})});
@@ -2336,6 +2379,27 @@ function addReg(){
   $("rSex").selectedIndex=0;$("rNation").selectedIndex=0;
   $("rCDone").checked=false;$("rCArr").checked=false;
   renderRegQueue();
+}
+async function saveRegNow(btn){
+  if(!$("rSerial").value) $("rSerial").value=genSerial();
+  const url=$("apiUrl").value.trim();
+  if(!url){alert("即時存檔需設定 API 端點。");return;}
+  const rec={mode:"register",serial:$("rSerial").value,chartNo:$("rChart").value,name:$("rName").value,sex:$("rSex").value,
+    birth:$("rBirth").value,natId:$("rNatId").value,nation:$("rNation").value,addr:$("rAddr").value,
+    telHome:$("rTelH").value,telMobile:$("rTelM").value,
+    cName:$("rCName").value,cRel:$("rCRel").value,cTel:$("rCTel").value,
+    cDone:$("rCDone").checked,cArr:$("rCArr").checked,
+    triage:$("rTri").value,injury:$("rInjury").value,memo:$("rMemo").value,summary:$("rSum").value,
+    event:curEvent,staff:$("staff").value,apiKey:$("apiKey").value||undefined,adminKey:$("adminKey").value||undefined};
+  const orig=btn.textContent;btn.disabled=true;btn.textContent="存檔中…";
+  try{
+    const res=await fetch(url,{method:"POST",body:JSON.stringify(rec)});
+    const j=await res.json().catch(()=>({ok:res.ok}));
+    if(j.ok===false||!res.ok)throw new Error(j.error||res.status);
+    btn.textContent="✓ 已存";
+    showToast("💾 已即時存檔（編號 "+rec.serial+"），掛號端刷新即可看到；可繼續補填再存");
+  }catch(e){btn.textContent="失敗";showToast("即時存檔失敗："+e.message,true);}
+  setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},1500);
 }
 function renderRegQueue(){
   const tb=$("regTable");
