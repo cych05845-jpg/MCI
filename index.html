@@ -319,7 +319,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
     </div>
     <div class="row">
       <button class="ghost" style="border-color:#1A73E8;color:#1A73E8" onclick="$('vitalPhoto').click()">📸 拍照讀值（監視器/血壓計）</button>
-      <input type="file" id="vitalPhoto" accept="image/*" capture="environment" style="display:none" onchange="vitalsFromPhoto(this)">
+      <input type="file" id="vitalPhoto" accept="image/*" style="display:none" onchange="vitalsFromPhoto(this)">
       <span id="vitalOcrStatus" style="font-size:13px;color:#555"></span>
     </div>
     <div class="row" id="vitalInputs">
@@ -342,8 +342,8 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
     <label style="font-weight:bold">摘要（可語音輸入）</label>
     <button class="micBtn" id="micBtn" onclick="toggleMic()">🎤 開始語音</button>
     <button class="micBtn" id="micBtnC" style="background:#1A73E8;border-color:#0B4DA0" onclick="toggleCloudMic('triage','micBtnC','micStatus')">☁️ 精準語音</button>
-    <button class="micBtn" id="micBtnDoc" style="background:#6A1B9A;border-color:#4A126B" onclick="$('docPhotoFile').click()">📄 文件拍照解析</button>
-    <input type="file" id="docPhotoFile" accept="image/*" capture="environment" style="display:none" onchange="docFromPhoto(this)">
+    <button class="micBtn" id="micBtnDoc" style="background:#6A1B9A;border-color:#4A126B" onclick="$('docPhotoFile').click()">📄 文件拍照/選圖解析</button>
+    <input type="file" id="docPhotoFile" accept="image/*" style="display:none" onchange="docFromPhoto(this)">
     <button class="ghost" style="border-color:#7B1FA2;color:#7B1FA2" onclick="polishSummary()">✨ 整理摘要</button>
     <button class="ghost" onclick="analyzeSummary()">分析並建議分類</button>
     <span id="micStatus" style="font-size:12px;color:#666"></span>
@@ -726,7 +726,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.18-7";
+const APP_VERSION = "v2026.09.23-4";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -995,7 +995,7 @@ function chartPhoto(targetId){
   let inp=$("chartOcrFile");
   if(!inp){
     inp=document.createElement("input");
-    inp.type="file";inp.accept="image/*";inp.capture="environment";inp.id="chartOcrFile";inp.style.display="none";
+    inp.type="file";inp.accept="image/*";inp.id="chartOcrFile";inp.style.display="none";
     inp.onchange=()=>chartFromPhoto(inp);
     document.body.appendChild(inp);
   }
@@ -1013,12 +1013,17 @@ async function chartFromPhoto(inp){
     const j=await res.json();
     if(!j.ok){showToast("讀號失敗："+(j.error||""),true);return;}
     const v=(j.result||{});
-    const num=v.chartNo||v.barcode||v.others||"";
+    const chart=v.chartNo||v.barcode||"";
+    const mci=v.mciNo||"";
+    // 順手把大量編號也填進去（若畫面上有 mciNo 欄且尚空）
+    if(mci&&$("mciNo")&&!$("mciNo").value){$("mciNo").value=mci;$("mciNo").style.background="#C8E6C9";setTimeout(()=>$("mciNo").style.background="",3000);}
+    const num=(tgt==="mciNo"?mci:chart)||chart||mci;
     if(num&&tgt==="__scanHome"){ showToast("✓ 讀到："+num); startRegFor(num); return; }
     if(num&&$(tgt)){$(tgt).value=num;$(tgt).style.background="#C8E6C9";setTimeout(()=>$(tgt).style.background="",3000);
-      showToast("✓ 讀到："+num+"（請核對）");
-      if(tgt==="chartNo")lookupPatient("","triage",num);
-      else if(tgt==="mciNo")lookupPatient(num,"triage");
+      let msg="✓ 讀到";if(chart)msg+="｜病歷號 "+chart;if(mci)msg+="｜大量編號 "+mci;
+      showToast(msg+"（請核對）");
+      if(tgt==="chartNo")lookupPatient("","triage",chart);
+      else if(tgt==="mciNo")lookupPatient(mci||num,"triage");
       else if(tgt==="rSerial")lookupPatient(num,"reg");
     }else showToast("未讀到清楚數字，請改用手動輸入",true);
   }catch(e){showToast("讀號失敗："+e.message,true);}
@@ -1054,15 +1059,31 @@ async function docFromPhoto(inp){
     const vv=o.vitals||{};
     const setV=(id,val)=>{if(val!=null&&val!==""&&!isNaN(val)&&$(id)&&!$(id).value){$(id).value=val;$(id).style.background="#C8E6C9";setTimeout(()=>$(id).style.background="",3000);}};
     setV("sbp",vv.sbp);setV("dbp",vv.dbp);setV("hr",vv.hr);setV("rr",vv.rr);setV("spo2",vv.spo2);setV("bt",vv.bt);
-    if(vv.gcs&&$("gcsTotal")){/* 若有 GCS 欄位可填 */}
+    // 毛細管回填（秒→選項）
+    if(vv.capRefill!=null&&$("capRefill")&&!$("capRefill").value){
+      $("capRefill").value=(Number(vv.capRefill)>2?"2":"1");$("capRefill").style.background="#C8E6C9";setTimeout(()=>$("capRefill").style.background="",3000);
+    }
+    // 可否行走→活動狀態
+    if(vv.walk&&$("mobility")){
+      if(/是|可/.test(vv.walk)){$("mobility").selectedIndex=0;$("mobility").style.background="#C8E6C9";setTimeout(()=>$("mobility").style.background="",3000);}
+    }
     if($("vitalsBox"))$("vitalsBox").open=true;
-    // 基本資料（帶到檢傷患者欄，供辨識）
+    // 基本資料
     const p=o.patient||{};
-    if(p.name&&$("ptName")&&!$("ptName").value)$("ptName").value=p.name;
+    const setT=(id,val)=>{if(val&&$(id)&&!$(id).value){$(id).value=val;$(id).style.background="#C8E6C9";setTimeout(()=>$(id).style.background="",3000);}};
+    setT("ptName",p.name);
     if(p.sex&&$("ptSex"))$("ptSex").value=p.sex;
+    setT("ptAge",p.age);
+    // 過敏/血型/GCS→併入備註供參
+    const extra=[];
+    if(vv.gcs)extra.push("GCS "+vv.gcs);
+    if(o.history){if(o.history.allergy)extra.push("過敏:"+o.history.allergy);if(o.history.chronic)extra.push("病史:"+o.history.chronic);if(o.history.bloodType)extra.push("血型:"+o.history.bloodType);}
+    if(o.contact&&o.contact.name)extra.push("緊急聯絡:"+o.contact.name+(o.contact.relation?"("+o.contact.relation+")":"")+(o.contact.phone?" "+o.contact.phone:""));
+    if(extra.length&&$("memoBox")){memoEdited=true;$("memoBox").value=($("memoBox").value?$("memoBox").value+"　":"")+extra.join("；");$("memoBox").style.background="#C8E6C9";setTimeout(()=>$("memoBox").style.background="",3000);}
     compute();
     $("micStatus").innerHTML='<b style="color:#B00">⚠ 已由文件擷取，請逐項核對原文</b>'+(o.rawText?'（已讀取文件全文）':'');
-    showToast("📄 文件解析完成，綠底為擷取欄位，請核對");
+    showToast("📄 文件解析完成：摘要/生命徵象/基本資料已帶入，綠底請核對");
+    window._lastDocOcr=o;  // 供社工端登錄取用完整基本資料
   }catch(e){$("micStatus").textContent="解析失敗："+e.message;}
 }
 
@@ -1407,11 +1428,12 @@ function onScanned(val){
   if(tid!=="__homeScan"&&$(tid))$(tid).value=val;
   $("scanMsg").textContent="✓ 已讀取："+val;
   setTimeout(()=>{stopScan();
-    if(tid==="mciNo")lookupPatient($("mciNo").value,"triage");
-    if(tid==="rSerial")lookupPatient($("rSerial").value,"reg");
-    if(tid==="rcChart")saveRegChart&&showToast("已讀入病歷號，請按存回");
+    // 掃到即填入編號；靜默查詢（查到帶入既有資料續作，查無就直接新建，不報錯不卡住）
+    if(tid==="mciNo"){showToast("✓ 大量傷患編號："+val+"（可直接開始檢傷）");lookupPatient(val,"triage",null,true);}
+    if(tid==="rSerial"){showToast("✓ 編號："+val);lookupPatient(val,"reg",null,true);}
+    if(tid==="rcChart")showToast("已讀入病歷號，請按存回");
     if(tid==="__homeScan"){startRegFor(val);}
-    if(tid==="chartNo")lookupPatient("","triage",val);
+    if(tid==="chartNo")lookupPatient("","triage",val,true);
   },400);
 }
 async function startScan(targetId){
@@ -1477,7 +1499,7 @@ async function scanPhotoFallback(){
 function chartPhotoTo(targetId){
   chartOcrTarget=targetId;
   let inp=$("chartOcrFile");
-  if(!inp){inp=document.createElement("input");inp.type="file";inp.accept="image/*";inp.capture="environment";inp.id="chartOcrFile";inp.style.display="none";inp.onchange=()=>chartFromPhoto(inp);document.body.appendChild(inp);}
+  if(!inp){inp=document.createElement("input");inp.type="file";inp.accept="image/*";inp.id="chartOcrFile";inp.style.display="none";inp.onchange=()=>chartFromPhoto(inp);document.body.appendChild(inp);}
   inp.value="";inp.click();
 }
 let torchOn=false, zoomLevel=1;
@@ -2103,11 +2125,11 @@ function opsAnalysis(){
 }
 
 /* ---------- 依大量傷患編號查詢（檢傷↔登錄 資料互通） ---------- */
-async function lookupPatient(serial, side, chartNo){
+async function lookupPatient(serial, side, chartNo, silent){
   serial=(serial||"").trim(); chartNo=(chartNo||"").trim();
-  if(!serial&&!chartNo){alert("請先輸入或掃描大量傷患編號。");return;}
+  if(!serial&&!chartNo){if(!silent)alert("請先輸入或掃描大量傷患編號。");return;}
   const url=$("apiUrl").value.trim();
-  if(!url){alert("需先於登入進階設定或 ⚙ 設定填入 API 端點，才能查詢共享資料。");return;}
+  if(!url){if(!silent)alert("需先於登入進階設定或 ⚙ 設定填入 API 端點，才能查詢共享資料。");return;}
   try{
     const q=url+(url.includes("?")?"&":"?")+"action=lookup&serial="+encodeURIComponent(serial)+
       "&chartNo="+encodeURIComponent(chartNo)+
@@ -2116,7 +2138,7 @@ async function lookupPatient(serial, side, chartNo){
       "&key="+encodeURIComponent($("apiKey").value||"");
     const res=await fetch(q);
     const j=await res.json();
-    if(!j.ok){alert("查詢失敗："+friendlyErr(j.error||""));return;}
+    if(!j.ok){if(!silent)alert("查詢失敗："+friendlyErr(j.error||""));return;}
     if(side==="reg"){
       const t=j.triage;
       const lvBg={1:"#D32F2F",2:"#F48FD8",3:"#FFF200",4:"#1E9E35",5:"#2036E8"};
@@ -2150,12 +2172,12 @@ async function lookupPatient(serial, side, chartNo){
         prevTriage={level:t.level,time:t.time};
       }else prevTriage=null;
       compute();
-      if(!g&&!t)alert("查無此編號/病歷號的資料（可能尚未登錄/檢傷）。");
+      if(!g&&!t&&!silent)showToast("此為新編號，可直接新建檢傷（查無既有資料）");
       else showToast("🔎 已帶入登錄資料："+((g&&g.name)||"（姓名未登）")
         +((g&&g.chartNo)?"｜病歷號 "+g.chartNo:"")
         +((t&&t.level)?"｜前次檢傷 "+t.level+" 級":""));
     }
-  }catch(e){alert("查詢連線失敗："+e.message);}
+  }catch(e){if(!silent)alert("查詢連線失敗："+e.message);}
 }
 
 /* ---------- 傷患登錄佇列 ---------- */
