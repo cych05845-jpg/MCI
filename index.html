@@ -117,7 +117,7 @@ details.vitals .inner{padding:6px 10px;border-top:1px solid var(--line)}
 dialog{border:2px solid var(--line);padding:0;max-width:680px;width:94vw}
 dialog .dhead{background:#DCDCD2;padding:8px 12px;font-weight:bold;display:flex;justify-content:space-between}
 dialog .dbody{padding:12px;max-height:70vh;overflow:auto}
-dialog textarea{min-height:240px}
+dialog textarea{min-height:44px}
 table.rec{border-collapse:collapse;width:100%;font-size:13px}
 table.rec th,table.rec td{border:1px solid #AAA;padding:3px 6px;text-align:left}
 table.rec th{background:#EEE}
@@ -352,7 +352,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
     <button class="ghost" onclick="analyzeSummary()">分析並建議分類</button>
     <span id="micStatus" style="font-size:12px;color:#666"></span>
   </div>
-  <textarea id="sumText" placeholder="例：工作時被美工刀劃傷右大腿，一處約9公分撕裂傷，加壓後可止血，痛8分…"></textarea>
+  <textarea id="sumText" rows="2" style="resize:vertical" oninput="autoGrow(this)" placeholder="例：工作時被美工刀劃傷右大腿，一處約9公分撕裂傷，加壓後可止血，痛8分…"></textarea>
   <div class="sugList" id="sugList"></div>
 </div>
 
@@ -743,7 +743,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.24-10";
+const APP_VERSION = "v2026.09.24-11";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -2080,7 +2080,7 @@ function resolveChart(r){
   }
   return {v:"",src:""};
 }
-function autoGrow(el){ if(!el)return; el.style.height="auto"; const h=el.scrollHeight; if(h>0) el.style.height=Math.max(48,Math.min(h+4,200))+"px"; }
+function autoGrow(el){ if(!el)return; el.style.height="auto"; const h=el.scrollHeight; if(h>0) el.style.height=Math.max(44,Math.min(h+4,120))+"px"; }
 function renderTransfer(){
   const t=listCache.triage, r=t[tfIdx];
   if(!r)return;
