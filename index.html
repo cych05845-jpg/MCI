@@ -743,7 +743,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.24-3";
+const APP_VERSION = "v2026.09.24-5";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1501,19 +1501,20 @@ function pickEvent(name){
   }
 }
 function switchEvent(v){curEvent=v;updateEvChip();refreshList();}
-let pollTimer=null;
+let pollTimer=null, pausePolling=false;
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="visible" && mode==="home" && !document.querySelector("dialog[open]")){
     refreshList(true);   // 回到前景立即刷新一次
   }
 });
+document.addEventListener("close",(e)=>{ if(e.target&&e.target.tagName==="DIALOG"){ pausePolling=false; } },true);
 function startPolling(){
   if(pollTimer)clearInterval(pollTimer);
   const schedule=()=>{
     const jitter=12000+Math.floor(Math.random()*6000); // 12-18秒隨機，分散尖峰
     pollTimer=setTimeout(()=>{
       // 僅在主畫面、無彈窗、頁面可見時才刷新（省請求）
-      if(mode==="home" && !document.querySelector("dialog[open]") && document.visibilityState==="visible"){
+      if(mode==="home" && !pausePolling && !document.querySelector("dialog[open]") && document.visibilityState==="visible"){
         refreshList(true);
       }
       schedule();
@@ -1778,12 +1779,16 @@ async function testEndpoint(btn){
 
 /* ---------- 主畫面：清單/統計/去向 ---------- */
 let listCache={triage:[],register:[],dispositions:[]};
-let refreshing=false, lastRefreshTs=0;
+let refreshing=false, lastRefreshTs=0, refreshLockTs=0;
 async function refreshList(silent){
   const url=$("apiUrl").value.trim();
   if(!url){$("homeStats").textContent="（未設定端點：僅顯示本機資料）";renderHome();return;}
-  if(refreshing){ return; }
-  refreshing=true;
+  if(refreshing){
+    // 自我修復：若上次刷新卡超過20秒仍未解鎖，視為異常，強制放行
+    if(refreshLockTs && (Date.now()-refreshLockTs)>20000){ refreshing=false; }
+    else return;
+  }
+  refreshing=true; refreshLockTs=Date.now();
   if(!silent)$("homeStats").textContent="載入中…";
   const ctrl=new AbortController();
   const to=setTimeout(()=>ctrl.abort(),15000);
@@ -2006,7 +2011,7 @@ function triTable(clickable){
   return `<div style="overflow:auto"><table class="rec">
     <tr><th>級</th><th>編號</th><th>病歷號</th><th>時間</th><th>患者</th><th>生命徵象</th><th>活動</th><th>判斷依據</th><th>轉錄</th></tr>`+
     listCache.triage.map((r,idx)=>({r,idx})).filter(o=>o.r.dispo!=="作廢").reverse().map(({r,idx})=>
-      `<tr ${clickable?`style="cursor:pointer" onclick="openTransferByKey(${JSON.stringify(String(r.mciNo||''))},${JSON.stringify(String(r.chartNo||''))},${JSON.stringify(String(r.time||''))})"`:""}>
+      `<tr ${clickable?`style="cursor:pointer" onclick="openTransferByRow(${r.row||0},${JSON.stringify(String(r.mciNo||''))})"`:""}>
         <td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.chartNo||"—"}</td>
         <td>${r.time}</td><td>${r.name||regNameOf(r.mciNo)||"未知"}</td>
         <td style="font-size:12px">${vitalsBrief(r)}</td><td style="font-size:12px">${mobilityBrief(r)}</td>
@@ -2025,16 +2030,24 @@ async function postVoid(sheet,row){
   }catch(e){showToast("作廢失敗："+e.message,true);return false;}
 }
 let tfIdx=0;
-function openTransferByKey(mci,chart,time){
-  mci=String(mci||"").trim(); chart=String(chart||"").trim(); time=String(time||"").trim();
-  const arr=listCache.triage;
-  let idx=arr.findIndex(r=>r.dispo!=="作廢" && String(r.mciNo||"").trim()===mci && String(r.chartNo||"").trim()===chart && String(r.time||"").trim()===time);
-  if(idx<0&&mci)idx=arr.findIndex(r=>r.dispo!=="作廢"&&String(r.mciNo||"").trim()===mci);
-  if(idx<0){showToast("該筆已更新，正在重新整理…",true);refreshList();return;}
+function openTransferByRow(row,mci){
+  const arr=listCache.triage||[];
+  const alive=r=>r&&r.dispo!=="作廢";
+  // 首選：用試算表列號 row 精準定位（唯一、不重複、刷新後不變）→ 保證開到同一筆
+  let idx=-1;
+  if(row) idx=arr.findIndex(r=>alive(r)&&Number(r.row)===Number(row));
+  // 備援：row 對不到（極少見，如該列剛被刪/重排），用編號找並提示核對
+  if(idx<0&&mci){
+    const cand=arr.map((r,i)=>({r,i})).filter(o=>alive(o.r)&&String(o.r.mciNo||"").trim()===String(mci).trim());
+    if(cand.length===1){ idx=cand[0].i; }
+    else if(cand.length>1){ showToast("編號 "+mci+" 有多筆，已開最新一筆，請核對病歷號/時間",true); idx=cand[cand.length-1].i; }
+  }
+  if(idx<0){ showToast("找不到這筆（可能已作廢或已更新），請按🔄重新整理後再點",true); return; }
   openTransfer(idx);
 }
 function openTransfer(idx){
   tfIdx=idx;
+  pausePolling=true;               // 開卡片→暫停背景輪詢，避免重繪干擾
   renderTransfer();
   if(!$("transferDlg").open)$("transferDlg").showModal();
   // 顯示後再算高度（dialog 開啟瞬間 scrollHeight 才正確）
