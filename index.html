@@ -743,7 +743,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.24-11";
+const APP_VERSION = "v2026.09.24-14";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1009,13 +1009,23 @@ async function toggleCloudMic(ctx,btnId,stId){
 let chartOcrTarget="";
 function chartPhoto(targetId){
   chartOcrTarget=targetId;
-  let inp=$("chartOcrFile");
-  if(!inp){
-    inp=document.createElement("input");
-    inp.type="file";inp.accept="image/*";inp.id="chartOcrFile";inp.style.display="none";
-    inp.onchange=()=>chartFromPhoto(inp);
-    document.body.appendChild(inp);
+  // 建立兩個 input：拍照(capture) 與 選圖(無capture)
+  let cam=$("chartOcrCam"), pick=$("chartOcrPick");
+  if(!cam){
+    cam=document.createElement("input");
+    cam.type="file";cam.accept="image/*";cam.capture="environment";cam.id="chartOcrCam";cam.style.display="none";
+    cam.onchange=()=>chartFromPhoto(cam);
+    document.body.appendChild(cam);
   }
+  if(!pick){
+    pick=document.createElement("input");
+    pick.type="file";pick.accept="image/*";pick.id="chartOcrPick";pick.style.display="none";
+    pick.onchange=()=>chartFromPhoto(pick);
+    document.body.appendChild(pick);
+  }
+  // 用 confirm 選：確定=拍照、取消=選圖
+  const useCam=confirm("讀號方式：\n\n【確定】= 開相機拍照\n【取消】= 從相簿選圖");
+  const inp=useCam?cam:pick;
   inp.value="";inp.click();
 }
 async function chartFromPhoto(inp){
@@ -1573,8 +1583,10 @@ async function startScan(targetId){
   try{
     scanStream=await navigator.mediaDevices.getUserMedia({video:{
       facingMode:{ideal:"environment"},
-      width:{ideal:1920}, height:{ideal:1080},
-      focusMode:"continuous", advanced:[{focusMode:"continuous"}]
+      width:{ideal:1280}, height:{ideal:720},
+      frameRate:{ideal:30},
+      focusMode:"continuous",
+      advanced:[{focusMode:"continuous"},{focusDistance:0.1}]
     }});
   }catch(e){
     try{ scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}); }
@@ -1588,9 +1600,29 @@ async function startScan(targetId){
     const caps=scanTrack.getCapabilities?scanTrack.getCapabilities():{};
     const adv=[];
     if(caps.focusMode&&caps.focusMode.includes("continuous"))adv.push({focusMode:"continuous"});
-    if(caps.zoom&&caps.zoom.max>=2)adv.push({zoom:Math.min(2,caps.zoom.max)});
+    if(caps.zoom&&caps.zoom.max>=1.5)adv.push({zoom:Math.min(1.8,caps.zoom.max)});
     if(adv.length)await scanTrack.applyConstraints({advanced:adv});
     $("torchBtn").style.display=(caps.torch)?"inline-block":"none";
+    // 點畫面手動對焦（Android對不到時，使用者可點條碼位置強制對焦）
+    v.onclick=async()=>{
+      try{
+        if(caps.focusMode&&caps.focusMode.includes("manual")){
+          await scanTrack.applyConstraints({advanced:[{focusMode:"manual",focusDistance:caps.focusDistance?caps.focusDistance.min:0.05}]});
+          setTimeout(()=>scanTrack.applyConstraints({advanced:[{focusMode:"continuous"}]}).catch(()=>{}),600);
+          showToast("重新對焦中…");
+        }
+      }catch(_){}
+    };
+    // 週期性重新觸發對焦（掃不到時，每2秒抖一下焦距逼相機重對）
+    if(caps.focusMode&&caps.focusMode.includes("continuous")){
+      scanFocusTimer=setInterval(async()=>{
+        try{
+          await scanTrack.applyConstraints({advanced:[{focusMode:"manual",focusDistance:0.1}]});
+          await new Promise(r=>setTimeout(r,150));
+          await scanTrack.applyConstraints({advanced:[{focusMode:"continuous"}]});
+        }catch(_){}
+      },2500);
+    }
   }catch(_){}
   $("scanDlg").showModal();
   $("scanMsg").textContent="啟動相機中…";
@@ -1603,7 +1635,7 @@ async function startScan(targetId){
       $("scanMsg").textContent="載入掃描元件…";
       await loadZXing();
       if(scanned)return;
-      $("scanMsg").textContent="對準條碼…（將黑白條碼置於綠框內）";
+      $("scanMsg").innerHTML="對準條碼…黑白線條置於綠框、距離約15公分<br><b>對不到請點一下畫面重新對焦</b>";
       const ZB=zxingObj();
       zxingReader=new ZB.BrowserMultiFormatReader();
       zxingReader.decodeFromVideoElement(v,(result,err)=>{
@@ -1637,12 +1669,9 @@ async function scanPhotoFallback(){
   chartPhotoTo(tgt);
 }
 function chartPhotoTo(targetId){
-  chartOcrTarget=targetId;
-  let inp=$("chartOcrFile");
-  if(!inp){inp=document.createElement("input");inp.type="file";inp.accept="image/*";inp.id="chartOcrFile";inp.style.display="none";inp.onchange=()=>chartFromPhoto(inp);document.body.appendChild(inp);}
-  inp.value="";inp.click();
+  chartPhoto(targetId);   // 共用同一套拍照/選圖選單
 }
-let torchOn=false, zoomLevel=1;
+let torchOn=false, zoomLevel=1, scanFocusTimer=null;
 async function toggleTorch(){
   if(!scanTrack)return;
   try{ torchOn=!torchOn; await scanTrack.applyConstraints({advanced:[{torch:torchOn}]});
@@ -1661,6 +1690,7 @@ async function cycleZoom(){
 }
 function stopScan(){
   torchOn=false;zoomLevel=1;scanTrack=null;
+  if(scanFocusTimer){clearInterval(scanFocusTimer);scanFocusTimer=null;}
   if(scanTimer){clearInterval(scanTimer);scanTimer=null;}
   if(zxingReader){try{zxingReader.reset();}catch(_){}zxingReader=null;}
   if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
