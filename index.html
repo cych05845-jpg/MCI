@@ -517,7 +517,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
   <div class="dbody">
     <div class="row"><label>角色</label>
       <select id="roleSel" style="font-size:16px;padding:6px">
-        <option>檢傷</option><option>社工</option><option>掛號</option><option>行政</option>
+        <option>檢傷</option><option>社工</option><option>志工</option><option>掛號</option><option>行政</option>
       </select>
       <label>員編</label><input type="text" id="empId" class="w6" style="font-size:16px;padding:6px" placeholder="員工編號">
       <input type="text" id="staffManual" class="w6" placeholder="姓名（選填）">
@@ -590,17 +590,17 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
       <input type="text" id="tfVitals" style="flex:1" placeholder="BP 120/80  HR 88  RR 18  SpO2 98%  BT 36.5°C">
       <button class="ghost" onclick="copyVal('tfVitals',this)">複製</button>
       <button class="ghost" style="font-size:12px" onclick="saveVitalsBack(this)">存回</button></div>
-    <div class="row" style="align-items:flex-start"><label style="min-width:5em;padding-top:6px">判斷依據</label>
-      <textarea id="tfSum" rows="2" style="flex:1;resize:vertical" oninput="autoGrow(this)"></textarea>
-      <div style="display:flex;flex-direction:column;gap:4px">
-        <button class="ghost" onclick="copyVal('tfSum',this)">複製</button>
-        <button class="ghost" style="font-size:12px" onclick="saveFieldBack('basis','tfSum',this)">存回</button>
-      </div></div>
     <div class="row" style="align-items:flex-start"><label style="min-width:5em;padding-top:6px">摘要</label>
       <textarea id="tfNote" rows="2" style="flex:1;resize:vertical" oninput="autoGrow(this)"></textarea>
       <div style="display:flex;flex-direction:column;gap:4px">
         <button class="ghost" onclick="copyVal('tfNote',this)">複製</button>
         <button class="ghost" style="font-size:12px" onclick="saveFieldBack('summary','tfNote',this)">存回</button>
+      </div></div>
+    <div class="row" style="align-items:flex-start"><label style="min-width:5em;padding-top:6px">判斷依據</label>
+      <textarea id="tfSum" rows="2" style="flex:1;resize:vertical" oninput="autoGrow(this)"></textarea>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button class="ghost" onclick="copyVal('tfSum',this)">複製</button>
+        <button class="ghost" style="font-size:12px" onclick="saveFieldBack('basis','tfSum',this)">存回</button>
       </div></div>
     <div class="row" style="justify-content:space-between;margin-top:6px">
       <span style="font-size:12px;color:#666">逐欄貼入正式檢傷（叫號綁定）；正式系統仍以現場確認為準。</span>
@@ -743,7 +743,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.23-19";
+const APP_VERSION = "v2026.09.24-3";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1025,7 +1025,7 @@ async function chartFromPhoto(inp){
   const tgt=chartOcrTarget;
   showToast("🔎 讀取病歷號中…");
   try{
-    const b64=await compressImg(file,2000);
+    const b64=await compressImg(file,1280,0.7);
     const res=await fetch(url,{method:"POST",body:JSON.stringify({mode:"chart_ocr",image:b64,mime:"image/jpeg",apiKey:$("apiKey").value||undefined})});
     const j=await res.json();
     if(!j.ok){showToast("讀號失敗："+(j.error||""),true);return;}
@@ -1045,13 +1045,14 @@ async function chartFromPhoto(inp){
     }else showToast("未讀到清楚數字，請改用手動輸入",true);
   }catch(e){showToast("讀號失敗："+e.message,true);}
 }
-function compressImg(file,max){
+function compressImg(file,max,quality){
+  quality=quality||0.72;
   return new Promise((resolve,reject)=>{
     const img=new Image();
     img.onload=()=>{const sc=Math.min(1,max/Math.max(img.width,img.height));
       const cv=document.createElement("canvas");cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
-      cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
-      resolve(cv.toDataURL("image/jpeg",0.85).split(",")[1]);};
+      const ctx=cv.getContext("2d");ctx.imageSmoothingQuality="high";ctx.drawImage(img,0,0,cv.width,cv.height);
+      resolve(cv.toDataURL("image/jpeg",quality).split(",")[1]);};
     img.onerror=()=>reject(new Error("圖片讀取失敗"));
     img.src=URL.createObjectURL(file);
   });
@@ -1065,7 +1066,7 @@ async function docFromPhoto(inp){
   if(!url){alert("文件解析需設定 API 端點。");return;}
   $("micStatus").textContent="📄 解析文件中…";
   try{
-    const b64=await compressImg(file,1600);
+    const b64=await compressImg(file,1400,0.72);
     const res=await fetch(url,{method:"POST",body:JSON.stringify({mode:"doc_ocr",image:b64,mime:"image/jpeg",apiKey:$("apiKey").value||undefined})});
     const j=await res.json();
     if(!j.ok){$("micStatus").textContent="解析失敗："+(j.error||"");return;}
@@ -1428,6 +1429,33 @@ function doLogin(){
   setMode("home");
   refreshList();
   startPolling();
+  // 當日持續登入：記住登入資訊（隔日自動失效）
+  try{
+    localStorage.setItem("mci_session",JSON.stringify({
+      emp:emp,name:name,role:userRole,unit:unitPrefix,event:curEvent,
+      staff:$("staff").value, day:todayEv(), ts:Date.now()
+    }));
+  }catch(_){}
+}
+// 開頁自動還原當日登入
+function tryRestoreSession(){
+  try{
+    const s=JSON.parse(localStorage.getItem("mci_session")||"null");
+    if(!s)return false;
+    const MAX_MS=8*60*60*1000;               // 登入有效 8 小時（全職類適用）
+    if(!s.ts || (Date.now()-s.ts)>MAX_MS){ try{localStorage.removeItem("mci_session");}catch(_){}; return false; }
+    userRole=s.role; unitPrefix=s.unit||"";
+    curEvent=s.event||todayEv();
+    $("staff").value=s.staff||(s.emp+(s.name?"-"+s.name:""));
+    $("whoami").textContent=`👤 ${s.emp||""}${s.name?"-"+s.name:""}（${userRole}）`;
+    updateEvChip();
+    $("loginDlg").close();
+    applyRole();
+    setMode("home");
+    refreshList();
+    startPolling();
+    return true;
+  }catch(_){return false;}
 }
 function updateEvChip(){
   const pin=listCache.pinned&&curEvent===listCache.currentEvent;
@@ -1474,18 +1502,28 @@ function pickEvent(name){
 }
 function switchEvent(v){curEvent=v;updateEvChip();refreshList();}
 let pollTimer=null;
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible" && mode==="home" && !document.querySelector("dialog[open]")){
+    refreshList(true);   // 回到前景立即刷新一次
+  }
+});
 function startPolling(){
   if(pollTimer)clearInterval(pollTimer);
-  pollTimer=setInterval(()=>{
-    // 僅在主畫面、且無彈窗開啟時背景刷新
-    if(mode!=="home")return;
-    if(document.querySelector("dialog[open]"))return;
-    refreshList(true);
-  },12000);
+  const schedule=()=>{
+    const jitter=12000+Math.floor(Math.random()*6000); // 12-18秒隨機，分散尖峰
+    pollTimer=setTimeout(()=>{
+      // 僅在主畫面、無彈窗、頁面可見時才刷新（省請求）
+      if(mode==="home" && !document.querySelector("dialog[open]") && document.visibilityState==="visible"){
+        refreshList(true);
+      }
+      schedule();
+    },jitter);
+  };
+  schedule();
 }
-function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null;}}
+function stopPolling(){if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}}
 function applyRole(){
-  const regOnly=(userRole==="社工"||userRole==="掛號");
+  const regOnly=(userRole==="社工"||userRole==="志工"||userRole==="掛號");
   $("tabGeneral").classList.toggle("hidden",regOnly);
   $("tabQuick").classList.toggle("hidden",regOnly);
   $("tabReg").classList.toggle("hidden",userRole==="檢傷");
@@ -1556,29 +1594,38 @@ async function startScan(targetId){
   $("scanDlg").showModal();
   $("scanMsg").textContent="啟動相機中…";
   const FORMATS=["code_128","code_39","ean_13","ean_8","upc_a","qr_code","itf","codabar"];
-  // 路徑一：原生 BarcodeDetector（Android Chrome 最快）
+  // 主力用 ZXing（跨平台最穩，含 Android/iPhone）；BarcodeDetector 僅當加速輔助且限時
+  let scanned=false;
+  const doZXing=async()=>{
+    if(scanned)return;
+    try{
+      $("scanMsg").textContent="載入掃描元件…";
+      await loadZXing();
+      if(scanned)return;
+      $("scanMsg").textContent="對準條碼…（將黑白條碼置於綠框內）";
+      const ZB=zxingObj();
+      zxingReader=new ZB.BrowserMultiFormatReader();
+      zxingReader.decodeFromVideoElement(v,(result,err)=>{
+        if(result&&!scanned){const t=result.getText?result.getText():result.text;if(t){scanned=true;onScanned(t);}}
+      });
+    }catch(e){
+      $("scanMsg").innerHTML='<b style="color:#A33">相機掃描無法啟動：'+e.message+'</b><br>請改用下方「📷 拍照讀號」。';
+    }
+  };
+  // BarcodeDetector 若可用，先試 3 秒（Android 常壞→逾時自動退 ZXing）
   if("BarcodeDetector" in window){
     try{
       const det=new BarcodeDetector({formats:FORMATS});
       $("scanMsg").textContent="對準條碼…";
+      let tries=0;
       scanTimer=setInterval(async()=>{
-        try{const codes=await det.detect(v);if(codes.length){clearInterval(scanTimer);scanTimer=null;onScanned(codes[0].rawValue);}}catch(_){}
+        tries++;
+        try{const codes=await det.detect(v);if(codes.length&&!scanned){scanned=true;clearInterval(scanTimer);scanTimer=null;onScanned(codes[0].rawValue);return;}}catch(_){}
+        if(tries>=12&&!scanned){ clearInterval(scanTimer);scanTimer=null; doZXing(); }  // 3秒(12×250ms)沒中→退ZXing
       },250);
-      return;
-    }catch(e){/* 落到 ZXing */}
-  }
-  // 路徑二：ZXing（iPhone Safari 等通用）
-  try{
-    $("scanMsg").textContent="載入掃描元件…";
-    await loadZXing();
-    $("scanMsg").textContent="對準條碼…";
-    const ZB=zxingObj();
-    zxingReader=new ZB.BrowserMultiFormatReader();
-    zxingReader.decodeFromVideoElement(v,(result,err)=>{
-      if(result){const t=result.getText?result.getText():result.text;if(t){onScanned(t);}}
-    });
-  }catch(e){
-    $("scanMsg").innerHTML='<b style="color:#A33">相機掃描無法啟動：'+e.message+'</b><br>請改用下方「📷 拍照讀號」。';
+    }catch(e){ doZXing(); }
+  }else{
+    doZXing();
   }
 }
 async function scanPhotoFallback(){
@@ -1627,7 +1674,7 @@ async function regDocFromPhoto(inp){
   if(!url){alert("文件解析需設定 API 端點。");return;}
   $("micStatusR").textContent="📄 解析文件中…";
   try{
-    const b64=await compressImg(file,1600);
+    const b64=await compressImg(file,1400,0.72);
     const res=await fetch(url,{method:"POST",body:JSON.stringify({mode:"doc_ocr",image:b64,mime:"image/jpeg",apiKey:$("apiKey").value||undefined})});
     const j=await res.json();
     if(!j.ok){$("micStatusR").textContent="解析失敗："+(j.error||"");return;}
@@ -1731,14 +1778,20 @@ async function testEndpoint(btn){
 
 /* ---------- 主畫面：清單/統計/去向 ---------- */
 let listCache={triage:[],register:[],dispositions:[]};
+let refreshing=false, lastRefreshTs=0;
 async function refreshList(silent){
   const url=$("apiUrl").value.trim();
   if(!url){$("homeStats").textContent="（未設定端點：僅顯示本機資料）";renderHome();return;}
+  if(refreshing){ return; }
+  refreshing=true;
   if(!silent)$("homeStats").textContent="載入中…";
+  const ctrl=new AbortController();
+  const to=setTimeout(()=>ctrl.abort(),15000);
   try{
-    const res=await fetch(url+(url.includes("?")?"&":"?")+"action=list&key="+encodeURIComponent($("apiKey").value||"")+"&event="+encodeURIComponent(curEvent)+"&adminkey="+encodeURIComponent($("adminKey").value||""));
+    const res=await fetch(url+(url.includes("?")?"&":"?")+"action=list&key="+encodeURIComponent($("apiKey").value||"")+"&event="+encodeURIComponent(curEvent)+"&adminkey="+encodeURIComponent($("adminKey").value||""),{signal:ctrl.signal});
     const j=await res.json();
     if(!j.ok)throw new Error(j.error||"");
+    lastRefreshTs=Date.now();
     listCache=j;
     if(j.currentEvent!==undefined)listCache.currentEvent=j.currentEvent;
     if(j.pinned!==undefined)listCache.pinned=j.pinned;
@@ -1753,8 +1806,13 @@ async function refreshList(silent){
     updateEvChip();
     renderHome();
   }catch(e){
-    $("homeStats").innerHTML='<span style="color:#A33">清單載入失敗：'+friendlyErr(e)+'</span>';
+    const msg=(e&&e.name==="AbortError")?"連線逾時（伺服器忙碌），稍後自動重試":friendlyErr(e);
+    const stat=$("homeStats");
+    if(stat){ const base=stat.getAttribute("data-ok")||""; stat.innerHTML=(base?base+"　":"")+'<span style="color:#A33">⚠ '+msg+'</span>'; }
     if(/unauthorized/i.test(String(e.message||""))) showToast("⚠ 需要通行金鑰（⚙ 設定）",true);
+  }finally{
+    clearTimeout(to);
+    refreshing=false;
   }
 }
 function lvBadge(l){return l?`<span style="display:inline-block;min-width:1.6em;text-align:center;font-weight:bold;background:var(--l${l});color:${l==3?'#000':(l==2?'#7A0000':'#fff')}">${l}</span>`:"—";}
@@ -1767,7 +1825,7 @@ function statsLine(){
 }
 function renderHome(){
   const body=$("homeBody");
-  $("homeStats").innerHTML=statsLine();
+  $("homeStats").innerHTML=statsLine(); $("homeStats").setAttribute("data-ok",statsLine());
   if(userRole==="檢傷"){
     $("homeTitle").textContent="檢傷主畫面";
     body.innerHTML=`
@@ -1780,7 +1838,7 @@ function renderHome(){
         <button class="ghost" style="padding:6px 12px;margin-left:8px" onclick="transferList()">📋 轉錄清單</button>
       </div>
       `+preTriageBlock()+`<b>最近檢傷（點列可開啟單筆轉錄卡）</b>`+triTable(true);
-  }else if(userRole==="社工"||userRole==="掛號"){
+  }else if(userRole==="社工"||userRole==="志工"||userRole==="掛號"){
     const isReg=(userRole==="掛號");
     $("homeTitle").textContent=isReg?"掛號建檔主畫面":"傷患登錄主畫面";
     // ---- 一人一列：以（事件內）大量傷患編號合併檢傷與登錄，同編號取最新登錄 ----
@@ -1888,6 +1946,7 @@ function renderHome(){
   }
 }
 function logout(){
+  try{localStorage.removeItem("mci_session");}catch(_){}
   stopPolling();
   if(recOn&&recog)recog.stop();
   userRole="檢傷";$("staff").value="";$("whoami").textContent="";
@@ -1901,7 +1960,7 @@ function copyVal(id,btn){
   });
 }
 function copyAllTransfer(btn){
-  navigator.clipboard.writeText([$("tfChart").value,$("tfLv").value,$("tfConsc").value,$("tfVitals").value,$("tfSum").value,$("tfNote").value].join("\t")).then(()=>{
+  navigator.clipboard.writeText([$("tfChart").value,$("tfLv").value,$("tfConsc").value,$("tfVitals").value,$("tfNote").value,$("tfSum").value].join("\t")).then(()=>{
     btn.textContent="已複製 ✓";setTimeout(()=>btn.textContent="複製全部（Tab分隔）",1500);
   });
 }
@@ -1947,7 +2006,7 @@ function triTable(clickable){
   return `<div style="overflow:auto"><table class="rec">
     <tr><th>級</th><th>編號</th><th>病歷號</th><th>時間</th><th>患者</th><th>生命徵象</th><th>活動</th><th>判斷依據</th><th>轉錄</th></tr>`+
     listCache.triage.map((r,idx)=>({r,idx})).filter(o=>o.r.dispo!=="作廢").reverse().map(({r,idx})=>
-      `<tr ${clickable?`style="cursor:pointer" onclick="openTransfer(${idx})"`:""}>
+      `<tr ${clickable?`style="cursor:pointer" onclick="openTransferByKey(${JSON.stringify(String(r.mciNo||''))},${JSON.stringify(String(r.chartNo||''))},${JSON.stringify(String(r.time||''))})"`:""}>
         <td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.chartNo||"—"}</td>
         <td>${r.time}</td><td>${r.name||regNameOf(r.mciNo)||"未知"}</td>
         <td style="font-size:12px">${vitalsBrief(r)}</td><td style="font-size:12px">${mobilityBrief(r)}</td>
@@ -1966,6 +2025,14 @@ async function postVoid(sheet,row){
   }catch(e){showToast("作廢失敗："+e.message,true);return false;}
 }
 let tfIdx=0;
+function openTransferByKey(mci,chart,time){
+  mci=String(mci||"").trim(); chart=String(chart||"").trim(); time=String(time||"").trim();
+  const arr=listCache.triage;
+  let idx=arr.findIndex(r=>r.dispo!=="作廢" && String(r.mciNo||"").trim()===mci && String(r.chartNo||"").trim()===chart && String(r.time||"").trim()===time);
+  if(idx<0&&mci)idx=arr.findIndex(r=>r.dispo!=="作廢"&&String(r.mciNo||"").trim()===mci);
+  if(idx<0){showToast("該筆已更新，正在重新整理…",true);refreshList();return;}
+  openTransfer(idx);
+}
 function openTransfer(idx){
   tfIdx=idx;
   renderTransfer();
@@ -2826,7 +2893,7 @@ $("verTag").textContent=APP_VERSION;
 $("verTag").style.cursor="pointer";
 $("verTag").title="點擊確認版本；若與最新不符請重新上傳 GitHub 並加 ?v=數字 重載";
 $("verTag").onclick=()=>alert("目前執行版本："+APP_VERSION+"\n\n如剛更新過 GitHub 卻仍是舊版，請在網址結尾加 ?v="+Date.now()+" 重新開啟以清除快取。");
-setNow(); setMode("quick"); $("loginDlg").showModal();
+setNow(); setMode("quick"); if(!tryRestoreSession()){ $("loginDlg").showModal(); }
 </script>
 </body>
 </html>
