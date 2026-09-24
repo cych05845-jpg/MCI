@@ -743,7 +743,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.24-9";
+const APP_VERSION = "v2026.09.24-10";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1835,8 +1835,9 @@ function bindTriDelegate(){
   body.addEventListener("click",(e)=>{
     const tr=e.target.closest(".triRow");
     if(tr && body.contains(tr)){
+      const row=Number(tr.getAttribute("data-row")||0);
       const s=tr.getAttribute("data-serial")||"";
-      startRegFor(s);
+      openTransferByRow(row,s);   // 檢傷點列 → 開轉錄/修改卡（改級數/病歷號/生命徵象/摘要）
     }
   });
   _triDelegateBound=true;
@@ -2026,7 +2027,7 @@ function triTable(clickable){
     <tr><th>級</th><th>編號</th><th>病歷號</th><th>時間</th><th>患者</th><th>生命徵象</th><th>活動</th><th>判斷依據</th><th>轉錄</th></tr>`+
     listCache.triage.map((r,idx)=>({r,idx})).filter(o=>o.r.dispo!=="作廢").reverse().map(({r,idx})=>{
       const serAttr=String(r.mciNo||"").replace(/"/g,"&quot;");
-      return `<tr class="triRow" data-serial="${serAttr}" style="user-select:none;${clickable?'cursor:pointer':''}">
+      return `<tr class="triRow" data-serial="${serAttr}" data-row="${r.row||0}" style="user-select:none;${clickable?'cursor:pointer':''}">
         <td>${lvBadge(r.level)}</td><td><b>${r.mciNo||"—"}</b></td><td>${r.chartNo||"—"}</td>
         <td>${r.time}</td><td>${r.name||regNameOf(r.mciNo)||"未知"}</td>
         <td style="font-size:12px">${vitalsBrief(r)}</td><td style="font-size:12px">${mobilityBrief(r)}</td>
