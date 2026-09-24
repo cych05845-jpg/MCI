@@ -743,7 +743,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.23-18";
+const APP_VERSION = "v2026.09.23-19";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1970,6 +1970,9 @@ function openTransfer(idx){
   tfIdx=idx;
   renderTransfer();
   if(!$("transferDlg").open)$("transferDlg").showModal();
+  // 顯示後再算高度（dialog 開啟瞬間 scrollHeight 才正確）
+  requestAnimationFrame(()=>{ autoGrow($("tfSum")); autoGrow($("tfNote")); });
+  setTimeout(()=>{ autoGrow($("tfSum")); autoGrow($("tfNote")); },50);
 }
 function resolveChart(r){
   if(r.chartNo)return {v:r.chartNo,src:"檢傷輸入"};
@@ -1980,7 +1983,7 @@ function resolveChart(r){
   }
   return {v:"",src:""};
 }
-function autoGrow(el){ el.style.height="auto"; el.style.height=Math.min(el.scrollHeight,180)+"px"; }
+function autoGrow(el){ if(!el)return; el.style.height="auto"; const h=el.scrollHeight; if(h>0) el.style.height=Math.max(48,Math.min(h+4,200))+"px"; }
 function renderTransfer(){
   const t=listCache.triage, r=t[tfIdx];
   if(!r)return;
