@@ -586,20 +586,18 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
       <input type="text" id="tfConsc" style="flex:1;font-weight:bold" placeholder="清醒 / 對聲音 / 對疼痛 / 無反應">
       <button class="ghost" onclick="copyVal('tfConsc',this)">複製</button>
       <button class="ghost" style="font-size:12px" onclick="saveConscBack(this)">存回</button></div>
-    <div class="row" style="align-items:flex-start"><label style="min-width:5em;padding-top:6px">生命徵象</label>
-      <textarea id="tfVitals" rows="2" style="flex:1" placeholder="BP 120/80  HR 88  RR 18  SpO2 98%  BT 36.5°C"></textarea>
-      <div style="display:flex;flex-direction:column;gap:4px">
-        <button class="ghost" onclick="copyVal('tfVitals',this)">複製</button>
-        <button class="ghost" style="font-size:12px" onclick="saveVitalsBack(this)">存回</button>
-      </div></div>
+    <div class="row"><label style="min-width:5em">生命徵象</label>
+      <input type="text" id="tfVitals" style="flex:1" placeholder="BP 120/80  HR 88  RR 18  SpO2 98%  BT 36.5°C">
+      <button class="ghost" onclick="copyVal('tfVitals',this)">複製</button>
+      <button class="ghost" style="font-size:12px" onclick="saveVitalsBack(this)">存回</button></div>
     <div class="row" style="align-items:flex-start"><label style="min-width:5em;padding-top:6px">判斷依據</label>
-      <textarea id="tfSum" rows="3" style="flex:1"></textarea>
+      <textarea id="tfSum" rows="2" style="flex:1;resize:vertical" oninput="autoGrow(this)"></textarea>
       <div style="display:flex;flex-direction:column;gap:4px">
         <button class="ghost" onclick="copyVal('tfSum',this)">複製</button>
         <button class="ghost" style="font-size:12px" onclick="saveFieldBack('basis','tfSum',this)">存回</button>
       </div></div>
     <div class="row" style="align-items:flex-start"><label style="min-width:5em;padding-top:6px">摘要</label>
-      <textarea id="tfNote" rows="3" style="flex:1"></textarea>
+      <textarea id="tfNote" rows="2" style="flex:1;resize:vertical" oninput="autoGrow(this)"></textarea>
       <div style="display:flex;flex-direction:column;gap:4px">
         <button class="ghost" onclick="copyVal('tfNote',this)">複製</button>
         <button class="ghost" style="font-size:12px" onclick="saveFieldBack('summary','tfNote',this)">存回</button>
@@ -745,7 +743,7 @@ table.rec th,table.rec td{padding:5px 8px;font-size:14.5px}
    key：通行密碼（=指令碼屬性 API_KEY）→ 公開 repo 請留空，
         改用 #api=..&key=.. 書籤/QR 發給內部，或不設 API_KEY 屬性
    ============================================================ */
-const APP_VERSION = "v2026.09.23-17";
+const APP_VERSION = "v2026.09.23-18";
 const PRESET = {
   api: "https://script.google.com/macros/s/AKfycbxRAP4Tb1huTKW0PxcH1xJkGFe_rzdFnXghqNGytKzcP10CStBnDjn1R1ZX2-UmlgsJ/exec",
   key: ""
@@ -1982,6 +1980,7 @@ function resolveChart(r){
   }
   return {v:"",src:""};
 }
+function autoGrow(el){ el.style.height="auto"; el.style.height=Math.min(el.scrollHeight,180)+"px"; }
 function renderTransfer(){
   const t=listCache.triage, r=t[tfIdx];
   if(!r)return;
@@ -2001,6 +2000,7 @@ function renderTransfer(){
   $("tfVitals").value=vitalsTransferText(r);
   $("tfSum").value=(r.basis||r.criteria||"")||"";
   $("tfNote").value=r.summary||"";
+  autoGrow($("tfSum")); autoGrow($("tfNote"));
 }
 // ACVPU/快速意識 → 對應 GCS（供正式系統參考）
 function consciousnessText(r){
